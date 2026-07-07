@@ -5,3 +5,15 @@ node_modules/
 # System Core Dumps
 core
 
+# AIOX runtime state (não versionar cache/debug)
+.ai/debug-log.md
+.aiox/project-status.yaml
+outputs/
+
+# Build output e uploads em runtime
+dist/
+uploads/
+
+# Lockfile órfão (projeto usa bun.lock)
+pnpm-lock.yaml
+

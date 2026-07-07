@@ -3,10 +3,12 @@ import Redis from 'ioredis';
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6380';
 
 export const redis = new Redis(redisUrl, {
-    maxRetriesPerRequest: null,
+    maxRetriesPerRequest: 3,
+    enableOfflineQueue: false,
+    lazyConnect: true,
     retryStrategy: (times) => {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
+        if (times > 3) return null; // para de tentar após 3 erros
+        return Math.min(times * 200, 2000);
     }
 });
 
@@ -15,7 +17,8 @@ redis.on('connect', () => {
 });
 
 redis.on('error', (err) => {
-    console.error('❌ Redis connection error:', err);
+    // log sem lançar exceção — Redis é opcional
+    console.warn('⚠️  Redis unavailable (cache disabled):', err.message);
 });
 
 /**

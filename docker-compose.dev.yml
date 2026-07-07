@@ -1,15 +1,31 @@
-version: '3.8'
-
 # Docker Compose para DESENVOLVIMENTO com hot-reload
 
 services:
+  # Reverse proxy local
+  traefik:
+    image: traefik:v3.7
+    container_name: msoftmanage-traefik-dev
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    networks:
+      - msoftmanage-network-dev
+
   # Banco de dados MongoDB
   mongodb:
     image: mongo:7.0
     container_name: msoftmanage-mongodb-dev
     restart: unless-stopped
-    ports:
-      - "27017:27017"
+    expose:
+      - "27017"
     environment:
       MONGO_INITDB_DATABASE: bun-api-dev
     volumes:
@@ -29,8 +45,8 @@ services:
       dockerfile: Dockerfile.dev
     container_name: msoftmanage-api-dev
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       NODE_ENV: development
       PORT: 3000

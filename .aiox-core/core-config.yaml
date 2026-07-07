@@ -1,0 +1,206 @@
+markdownExploder: true
+project:
+  type: EXISTING_AIOX
+  name: m-manage
+  description: Backend API centralizado da plataforma mirandasoft — Bun + ElysiaJS + MongoDB
+  installedAt: '2026-07-04T00:00:00Z'
+  version: 2.1.0
+user_profile: advanced
+qa:
+  qaLocation: docs/qa
+prd:
+  prdFile: docs/prd.md
+  prdVersion: v4
+  prdSharded: true
+  prdShardedLocation: docs/prd
+  epicFilePattern: epic-{n}*.md
+architecture:
+  architectureFile: docs/architecture.md
+  architectureVersion: v4
+  architectureSharded: true
+  architectureShardedLocation: docs/architecture
+customTechnicalDocuments: null
+devLoadAlwaysFiles:
+  - docs/framework/coding-standards.md
+  - docs/framework/tech-stack.md
+  - docs/framework/source-tree.md
+devLoadAlwaysFilesFallback:
+  - docs/pt/framework/coding-standards.md
+  - docs/pt/framework/tech-stack.md
+  - docs/pt/framework/source-tree.md
+devDebugLog: .ai/debug-log.md
+devStoryLocation: docs/stories
+slashPrefix: AIOX
+toolsLocation: .aiox-core/tools
+scriptsLocation:
+  core: .aiox-core/core
+  development: .aiox-core/development/scripts
+  infrastructure: .aiox-core/infrastructure/scripts
+  legacy: .aiox-core/scripts
+dataLocation: .aiox-core/data
+elicitationLocation: .aiox-core/elicitation
+squadsTemplateLocation: templates/squad
+mindsLocation: outputs/minds
+ide:
+  selected:
+    - claude-code
+    - cursor
+    - vscode
+  configs:
+    vscode: true
+    codex: false
+    gemini: false
+    cursor: true
+    zed: false
+    claude-desktop: false
+    claude-code: true
+    github-copilot: false
+    antigravity: false
+mcp:
+  enabled: true
+  configLocation: .claude/mcp.json
+  servers: []
+lazyLoading:
+  enabled: true
+  heavySections:
+    - pvMindContext
+    - squads
+    - registry
+git:
+  showConfigWarning: true
+  cacheTimeSeconds: 300
+decisionLogging:
+  enabled: true
+  async: true
+  location: .ai/
+  indexFile: decision-logs-index.md
+  format: adr
+  performance:
+    maxOverhead: 50
+projectStatus:
+  enabled: true
+  autoLoadOnAgentActivation: true
+  showInGreeting: true
+  cacheTimeSeconds: 60
+  components:
+    gitBranch: true
+    gitStatus: true
+    recentWork: true
+    currentEpic: true
+    currentStory: true
+  statusFile: .aiox/project-status.yaml
+  maxModifiedFiles: 5
+  maxRecentCommits: 2
+synapse:
+  session:
+    staleTTLHours: 168
+agentIdentity:
+  greeting:
+    preference: auto
+    contextDetection: true
+    sessionDetection: hybrid
+    workflowDetection: hardcoded
+    performance:
+      gitCheckCache: true
+      gitCheckTTL: 300
+github:
+  enabled: true
+  cli_required: false
+  features:
+    pr_creation: true
+    issue_management: true
+  pr:
+    title_format: conventional
+    include_story_id: true
+    conventional_commits:
+      enabled: true
+      branch_type_map:
+        feature/: feat
+        feat/: feat
+        fix/: fix
+        bugfix/: fix
+        hotfix/: fix
+        docs/: docs
+        chore/: chore
+        refactor/: refactor
+        test/: test
+        perf/: perf
+        ci/: ci
+        style/: style
+        build/: build
+      default_type: feat
+    auto_assign_reviewers: false
+    draft_by_default: false
+  semantic_release:
+    enabled: true
+squads:
+  templateLocation: templates/squad
+  autoLoad: false
+storyBacklog:
+  enabled: true
+  location: docs/stories/backlog
+  prioritization: value_risk
+autoClaude:
+  enabled: true
+  version: '3.0'
+  worktree:
+    enabled: true
+    autoCreate: on_story_start
+    autoCleanup: manual
+    maxWorktrees: 10
+    staleDays: 30
+    branchPrefix: auto-claude/
+  specPipeline:
+    enabled: false
+  execution:
+    enabled: false
+  qa:
+    enabled: false
+boundary:
+  frameworkProtection: false
+  protected:
+    - .aiox-core/core/**
+    - .aiox-core/development/tasks/**
+    - .aiox-core/development/templates/**
+    - .aiox-core/development/checklists/**
+    - .aiox-core/development/workflows/**
+    - .aiox-core/infrastructure/**
+    - .aiox-core/constitution.md
+  exceptions:
+    - .aiox-core/data/**
+    - .aiox-core/development/agents/*/MEMORY.md
+    - .aiox-core/core/config/schemas/**
+    - .aiox-core/core/config/template-overrides.js
+models:
+  active: claude-sonnet-4-6
+  registry:
+    claude-opus-4-6:
+      contextWindow: 1000000
+      avgTokensPerPrompt: 1500
+    claude-sonnet-4-6:
+      contextWindow: 200000
+      avgTokensPerPrompt: 1500
+    claude-haiku-4-5:
+      contextWindow: 200000
+      avgTokensPerPrompt: 1200
+frameworkDocsLocation: docs/framework
+projectDocsLocation: docs/architecture/project-decisions
+squadsLocation: squads
+ideSync:
+  enabled: true
+  source: .aiox-core/development/agents
+  targets:
+    claude-code:
+      enabled: true
+      path: .claude/commands/AIOX/agents
+      skillsPath: .claude/skills
+      format: full-markdown-yaml
+    cursor:
+      enabled: true
+      path: .cursor/rules/agents
+      format: condensed-rules
+  redirects: {}
+  validation:
+    strictMode: false
+    failOnDrift: false
+    failOnOrphaned: false

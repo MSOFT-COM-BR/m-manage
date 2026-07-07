@@ -1,0 +1,13 @@
+http:
+  routers:
+    m-manage:
+      rule: Host(`m-manage.local`) || Host(`localhost`) || Host(`127.0.0.1`)
+      entryPoints:
+        - web
+      service: m-manage
+
+  services:
+    m-manage:
+      loadBalancer:
+        servers:
+          - url: http://api:3000

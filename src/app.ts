@@ -8,7 +8,11 @@ import { appRoutes } from './routes/apps';
 import { blogRoutes } from './routes/blogs';
 import { logRoutes } from './routes/logs';
 import { mLeadsRequestRoutes } from './modules/mLeadsRequest';
+import { productRoutes } from './modules/products';
+import { erpRoutes } from './modules/erp';
 import { mjsonRoutes } from './routes/mjson';
+import { bvaOrderRoutes } from './routes/bvaOrders';
+import { bvaProspectRoutes } from './routes/bvaProspects';
 import { cors } from '@elysiajs/cors';
 
 /**
@@ -21,11 +25,15 @@ export const app = new Elysia()
         origin: [
             'https://mirandasoft.com.br',
             'https://www.mirandasoft.com.br',
+            'http://m-manage.local:3000',
+            'http://m-manage.local',
+            'http://m-bva.local:3000',
+            'http://m-bva.local',
             'http://localhost:3000',
             'http://localhost:5173',
             'http://localhost:3001'
         ],
-        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
         allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-TOKEN', 'Origin']
     }))
 
@@ -106,7 +114,11 @@ export const app = new Elysia()
     .use(blogRoutes)
     .use(logRoutes)
     .use(mLeadsRequestRoutes)
+    .use(productRoutes)
+    .use(erpRoutes)
     .use(mjsonRoutes)
+    .use(bvaOrderRoutes)
+    .use(bvaProspectRoutes)
 
     // Documentação automática (Swagger)
     .get('/docs', () => ({

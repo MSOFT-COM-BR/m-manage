@@ -1,13 +1,29 @@
-version: '3.8'
-
 services:
+  # Reverse proxy local
+  traefik:
+    image: traefik:v3.7
+    container_name: msoftmanage-traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    networks:
+      - msoftmanage-network
+
   # Banco de dados MongoDB
   mongodb:
     image: mongo:7.0
     container_name: msoftmanage-mongodb
     restart: unless-stopped
-    ports:
-      - "27017:27017"
+    expose:
+      - "27017"
     environment:
       MONGO_INITDB_DATABASE: bun-api
     volumes:
@@ -29,8 +45,8 @@ services:
       dockerfile: Dockerfile
     container_name: msoftmanage-api
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -75,8 +91,8 @@ services:
     image: cassandra:4.1
     container_name: msoftmanage-cassandra
     restart: unless-stopped
-    ports:
-      - "9042:9042" # Porta nativa CQL
+    expose:
+      - "9042" # Porta nativa CQL
     environment:
       - CASSANDRA_CLUSTER_NAME=MManageCluster
       - CASSANDRA_DC=datacenter1

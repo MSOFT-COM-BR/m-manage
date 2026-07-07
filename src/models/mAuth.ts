@@ -7,12 +7,14 @@ export interface IMAuth extends Document {
     name: string;
     email: string;
     password?: string;
-    roles: string[]; // List of roles: ['admin', 'premium', 'user']
+    roles: string[];
     status: 'active' | 'inactive';
-    provider?: string; // 'local', 'google', etc.
+    provider?: string;
     avatar?: string;
     lastLogin?: Date;
-    access_token?: string; // Global API Access Token
+    access_token?: string;
+    refreshToken?: string;
+    tokenVersion: number;
     [key: string]: any;
 }
 
@@ -34,7 +36,9 @@ const mAuthSchema = new Schema<IMAuth>(
             enum: ['active', 'inactive'],
             default: 'active'
         },
-        access_token: { type: String, unique: true, sparse: true }, // Unique token
+        access_token: { type: String, unique: true, sparse: true },
+        refreshToken: { type: String, select: false },
+        tokenVersion: { type: Number, default: 0 },
         provider: { type: String, default: 'local' },
         avatar: { type: String },
         lastLogin: { type: Date }
@@ -49,7 +53,7 @@ const mAuthSchema = new Schema<IMAuth>(
                 ret.id = ret._id;
                 delete ret._id;
                 delete ret.password;
-                // Backwards compatibility for single 'role' clients
+                delete ret.refreshToken;
                 ret.role = (ret.roles && ret.roles.length > 0) ? ret.roles[0] : 'user';
                 return ret;
             },

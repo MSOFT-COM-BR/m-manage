@@ -1,5 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { mApps } from '../models/mApps';
+import { mAppAccess } from '../models/mAppAccess';
+import { verifyAccessToken } from '../config/jwt';
 import mongoose from 'mongoose';
 
 export const appRoutes = new Elysia({ prefix: '/apps' })
@@ -98,4 +100,92 @@ export const appRoutes = new Elysia({ prefix: '/apps' })
             access_token: t.String(),
             appKey: t.String()
         })
+    })
+
+    // Lista apps acessíveis pelo user logado
+    .get('/mine', async ({ headers, set }: any) => {
+        try {
+            const auth = headers?.authorization;
+            if (!auth?.startsWith('Bearer ')) {
+                set.status = 401;
+                return { success: false, error: 'Não autenticado' };
+            }
+            const payload = verifyAccessToken(auth.slice(7));
+            const accesses = await mAppAccess.find({ userId: payload.sub }).sort({ createdAt: -1 });
+            return { success: true, count: accesses.length, data: accesses };
+        } catch {
+            set.status = 401;
+            return { success: false, error: 'Token inválido ou expirado' };
+        }
+    })
+
+    // Concede acesso de um user a uma app (requer admin ou owner)
+    .post('/access', async ({ body, headers, set }: any) => {
+        try {
+            const auth = headers?.authorization;
+            if (!auth?.startsWith('Bearer ')) {
+                set.status = 401;
+                return { success: false, error: 'Não autenticado' };
+            }
+            const grantor = verifyAccessToken(auth.slice(7));
+
+            const { userId, appKey, role } = body;
+
+            // Só admin ou owner da app pode conceder acesso
+            if (!grantor.roles.includes('admin')) {
+                const grantorAccess = await mAppAccess.findOne({ userId: grantor.sub, appKey });
+                if (!grantorAccess || grantorAccess.role !== 'owner') {
+                    set.status = 403;
+                    return { success: false, error: 'Apenas admin ou owner pode conceder acesso' };
+                }
+            }
+
+            const access = await mAppAccess.findOneAndUpdate(
+                { userId, appKey },
+                { userId, appKey, role: role || 'viewer', grantedBy: grantor.sub },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
+
+            return { success: true, data: access };
+        } catch (error: any) {
+            set.status = 500;
+            return { success: false, error: error.message };
+        }
+    }, {
+        body: t.Object({
+            userId: t.String(),
+            appKey: t.String(),
+            role: t.Optional(t.Union([t.Literal('owner'), t.Literal('editor'), t.Literal('viewer')]))
+        })
+    })
+
+    // Revoga acesso
+    .delete('/access/:userId/:appKey', async ({ params, headers, set }: any) => {
+        try {
+            const auth = headers?.authorization;
+            if (!auth?.startsWith('Bearer ')) {
+                set.status = 401;
+                return { success: false, error: 'Não autenticado' };
+            }
+            const revoker = verifyAccessToken(auth.slice(7));
+
+            if (!revoker.roles.includes('admin')) {
+                const revokerAccess = await mAppAccess.findOne({ userId: revoker.sub, appKey: params.appKey });
+                if (!revokerAccess || revokerAccess.role !== 'owner') {
+                    set.status = 403;
+                    return { success: false, error: 'Apenas admin ou owner pode revogar acesso' };
+                }
+            }
+
+            const deleted = await mAppAccess.findOneAndDelete({ userId: params.userId, appKey: params.appKey });
+            if (!deleted) {
+                set.status = 404;
+                return { success: false, error: 'Acesso não encontrado' };
+            }
+
+            return { success: true, message: 'Acesso revogado' };
+        } catch (error: any) {
+            set.status = 500;
+            return { success: false, error: error.message };
+        }
     });
