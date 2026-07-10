@@ -62,12 +62,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    volumes:
-      # Para desenvolvimento com hot-reload (descomente as linhas abaixo)
-      # - ./src:/app/src:ro
-      # - ./package.json:/app/package.json:ro
-      # - ./tsconfig.json:/app/tsconfig.json:ro
-      - uploads:/app/uploads
+    # Para desenvolvimento com hot-reload (descomente as linhas abaixo)
+    # volumes:
+    #   - ./src:/app/src:ro
+    #   - ./package.json:/app/package.json:ro
+    #   - ./tsconfig.json:/app/tsconfig.json:ro
 
   # Mongo Express (Interface Web para MongoDB - Opcional)
   mongo-express:
@@ -118,8 +117,6 @@ volumes:
   mongodb_data:
     driver: local
   mongodb_config:
-    driver: local
-  uploads:
     driver: local
   cassandra_data:
     driver: local

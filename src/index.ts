@@ -1,7 +1,7 @@
 import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import { connectMongo } from './config/mongo';
-import { join } from 'node:path';
+import { presignUpload, readUpload } from './services/uploadService';
 import { userRoutes } from './modules/users/user.controller';
 import { authRoutes } from './routes/auth';
 import { appRoutes } from './routes/apps';
@@ -19,6 +19,7 @@ import { mjsonRoutes } from './routes/mjson';
 import { consultorasRoutes } from './routes/consultoras';
 import { bvaOrderRoutes } from './routes/bvaOrders';
 import { bvaProspectRoutes } from './routes/bvaProspects';
+import { bvaCategoriaRoutes } from './routes/bvaCategorias';
 
 // 1. Inicializa Conexão com Banco
 await connectMongo();
@@ -58,27 +59,39 @@ const app = new Elysia()
         timestamp: new Date().toISOString(),
     }))
 
-    // Serve arquivos estáticos de uploads
+    // Uploads vivem no bucket S3 (S019). Imagens: redirect 302 presignado — o
+    // navegador baixa direto do bucket, sem passar pela API. Anexos: streaming
+    // pela API para manter o Content-Disposition: attachment (download forçado),
+    // que a URL presignada não carrega.
     .get('/uploads/*', async ({ params, set }: any) => {
         try {
-            const rel = (params as any)['*'];
-            const abs = join(process.cwd(), 'uploads', rel);
-            // Segurança: impede path traversal
-            if (!abs.startsWith(join(process.cwd(), 'uploads'))) {
-                set.status = 403;
-                return 'Forbidden';
+            const rel = String((params as any)['*']);
+
+            if (!rel.includes('/attachments/')) {
+                const url = presignUpload(rel);
+                if (!url) {
+                    set.status = 404;
+                    return 'Not found';
+                }
+                set.status = 302;
+                set.headers['Location'] = url;
+                // URL presignada expira — o redirect não pode ficar cacheado além disso
+                set.headers['Cache-Control'] = 'private, max-age=300';
+                return '';
             }
-            const file = Bun.file(abs);
-            if (!await file.exists()) {
+
+            const content = await readUpload(rel);
+            if (!content) {
                 set.status = 404;
                 return 'Not found';
             }
-            set.headers['Content-Type'] = file.type || 'application/octet-stream';
-            if (String(rel).includes('/attachments/')) {
-                set.headers['Content-Disposition'] = 'attachment';
-            }
-            set.headers['Cache-Control'] = 'public, max-age=31536000, immutable';
-            return file;
+            return new Response(content.stream, {
+                headers: {
+                    'Content-Type': content.type,
+                    'Content-Disposition': 'attachment',
+                    'Cache-Control': 'public, max-age=31536000, immutable',
+                },
+            });
         } catch {
             set.status = 404;
             return 'Not found';
@@ -102,7 +115,8 @@ const app = new Elysia()
     .use(mjsonRoutes)
     .use(consultorasRoutes)
     .use(bvaOrderRoutes)
-    .use(bvaProspectRoutes);
+    .use(bvaProspectRoutes)
+    .use(bvaCategoriaRoutes);
 
 const listenPort = Number(process.env.PORT);
 app.listen(Number.isFinite(listenPort) && listenPort > 0 ? listenPort : 3000);

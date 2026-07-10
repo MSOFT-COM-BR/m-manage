@@ -1,5 +1,6 @@
 # Dockerfile para API Bun + MongoDB
-FROM oven/bun:1.1.38-alpine AS base
+# Bun >= 1.2 é obrigatório: uploads usam o S3Client nativo (src/config/s3.ts)
+FROM oven/bun:1.3-alpine AS base
 
 # Diretório de trabalho
 WORKDIR /app
