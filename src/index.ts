@@ -29,8 +29,7 @@ const isDev = process.env.NODE_ENV !== 'production';
 const PROD_ORIGINS = [
     'https://mirandasoft.com.br',
     'https://www.mirandasoft.com.br',
-    'https://studiobva.com.br',
-    'https://www.studiobva.com.br',
+    'https://studiobva.mirandasoft.com.br',
 ];
 
 // Qualquer porta de localhost/127.0.0.1/*.local usado pelo stack local é liberada — são sempre
