@@ -681,7 +681,10 @@ const configRoutes = new Elysia({ prefix: '/config' })
         if (guard) return guard;
         const { appKey, ...body } = ctx.body as any;
         if (!appKey) { ctx.set.status = 400; return { success: false, error: 'appKey é obrigatório' }; }
-        const data: IErpConfig = { custoEnergiaKwh: Number(body.custoEnergiaKwh ?? 0) };
+        const data: IErpConfig = {
+            custoEnergiaKwh: Number(body.custoEnergiaKwh ?? 0),
+            whatsappPrincipal: body.whatsappPrincipal ? String(body.whatsappPrincipal).replace(/\D/g, '') : undefined,
+        };
         const saved = await mErp.findOneAndUpdate(
             { uuid: configUuid(appKey), tipo: 'config' },
             { $set: { uuid: configUuid(appKey), appKey, tipo: 'config', data, deletedAt: null } },
@@ -689,6 +692,16 @@ const configRoutes = new Elysia({ prefix: '/config' })
         );
         await recalcMaquinas(appKey, data.custoEnergiaKwh);
         return { success: true, data: flat(saved) };
+    });
+
+// GET /erp/config/public?appKey= — SEM autenticação (a loja pública/index.html não tem login).
+// Expõe apenas o whatsappPrincipal — nunca custoEnergiaKwh nem outros dados internos do ERP.
+const configPublicRoutes = new Elysia({ prefix: '/config' })
+    .get('/public', async (ctx: any) => {
+        const { appKey } = ctx.query as Record<string, string>;
+        if (!appKey) { ctx.set.status = 400; return { success: false, error: 'appKey é obrigatório' }; }
+        const cfg = await getErpConfig(appKey);
+        return { success: true, data: { whatsappPrincipal: cfg.whatsappPrincipal || null } };
     });
 
 // ── MÁQUINAS (impressoras 3D) ───────────────────────────────────────────────────
@@ -891,6 +904,7 @@ function round2(n: number) { return Math.round(n * 100) / 100; }
 export const erpRoutes = new Elysia({ prefix: '/erp' })
     .use(insumoRoutes)
     .use(produtoRoutes)
+    .use(configPublicRoutes)
     .use(configRoutes)
     .use(maquinaRoutes)
     .use(kardexRoutes);
