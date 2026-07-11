@@ -52,6 +52,7 @@ export interface IProdutoFabril {
     attachments?: IProdutoAttachment[];
     observacoes?: string;
     visivelNaVitrine?: boolean;   // false = cadastrado só no ERP, não aparece na loja pública (default true)
+    articulado?: boolean;         // true = exibe o badge "100% Articulado" na vitrine (default false)
     // campos calculados (persistidos para histórico)
     custoMateriais?: number;
     custoTotal?: number;

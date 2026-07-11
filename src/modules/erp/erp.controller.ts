@@ -329,6 +329,7 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
             estoqueAcabado: Number(body.estoqueAcabado ?? 0),
             observacoes: body.observacoes,
             visivelNaVitrine: body.visivelNaVitrine !== false,
+            articulado: body.articulado === true,
         };
         // Calcula e persiste preços no momento da criação
         try {

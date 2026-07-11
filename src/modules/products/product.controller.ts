@@ -57,6 +57,7 @@ async function erpProductToPublicProduct(item: any) {
                 ? [{ url: data.imageUrl, alt: data.nome, isPrimary: true }]
                 : [],
         videos: Array.isArray(data.videos) ? data.videos : [],
+        articulado: data.articulado === true,
         variants: [],
         stock: data.estoqueAcabado ?? 0,
         weight: data.pesoGramas,
