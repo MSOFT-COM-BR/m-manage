@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia';
 import { mErp } from '../../models/mErp';
-import type { IInsumo, IProdutoAttachment, IProdutoFabril, IProdutoVideo, IKardex, IErpConfig, IMaquina, ErpTipo } from '../../models/mErp';
+import type { IInsumo, IProdutoAttachment, IProdutoFabril, IProdutoVideo, IKardex, IErpConfig, IErpConfigRedesSociais, IMaquina, ErpTipo } from '../../models/mErp';
 import type { IProductImage } from '../../models/mProduct';
 import { checkTenantAccess } from '../../middleware/tenantPlugin';
 import { saveAnyUpload, saveUpload, deleteUpload } from '../../services/uploadService';
@@ -57,6 +57,29 @@ function parseVideoUrl(rawUrl: string): IProdutoVideo | null {
     }
 
     return null;
+}
+
+// Valida cada link contra o domínio esperado da rede social; descarta silenciosamente URLs inválidas ou de domínio errado.
+const REDES_SOCIAIS_HOSTS: Record<keyof IErpConfigRedesSociais, string[]> = {
+    instagram: ['instagram.com'],
+    tiktok: ['tiktok.com'],
+    facebook: ['facebook.com', 'fb.com'],
+    youtube: ['youtube.com', 'youtu.be'],
+};
+
+function parseRedesSociais(raw: any): IErpConfigRedesSociais | undefined {
+    if (!raw || typeof raw !== 'object') return undefined;
+    const result: IErpConfigRedesSociais = {};
+    for (const key of Object.keys(REDES_SOCIAIS_HOSTS) as (keyof IErpConfigRedesSociais)[]) {
+        const value = raw[key];
+        if (!value) continue;
+        try {
+            const url = new URL(String(value));
+            const host = url.hostname.replace(/^www\./, '');
+            if (REDES_SOCIAIS_HOSTS[key].includes(host)) result[key] = url.toString();
+        } catch { /* URL inválida — ignora o campo */ }
+    }
+    return Object.keys(result).length ? result : undefined;
 }
 
 async function findItem(uuid: string, tipo: ErpTipo, ctx: any, minRole: 'viewer' | 'editor' | 'owner', includeDeleted = false) {
@@ -684,6 +707,7 @@ const configRoutes = new Elysia({ prefix: '/config' })
         const data: IErpConfig = {
             custoEnergiaKwh: Number(body.custoEnergiaKwh ?? 0),
             whatsappPrincipal: body.whatsappPrincipal ? String(body.whatsappPrincipal).replace(/\D/g, '') : undefined,
+            redesSociais: parseRedesSociais(body.redesSociais),
         };
         const saved = await mErp.findOneAndUpdate(
             { uuid: configUuid(appKey), tipo: 'config' },
@@ -701,7 +725,13 @@ const configPublicRoutes = new Elysia({ prefix: '/config' })
         const { appKey } = ctx.query as Record<string, string>;
         if (!appKey) { ctx.set.status = 400; return { success: false, error: 'appKey é obrigatório' }; }
         const cfg = await getErpConfig(appKey);
-        return { success: true, data: { whatsappPrincipal: cfg.whatsappPrincipal || null } };
+        return {
+            success: true,
+            data: {
+                whatsappPrincipal: cfg.whatsappPrincipal || null,
+                redesSociais: cfg.redesSociais || {},
+            },
+        };
     });
 
 // ── MÁQUINAS (impressoras 3D) ───────────────────────────────────────────────────

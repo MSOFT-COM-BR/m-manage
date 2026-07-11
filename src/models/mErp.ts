@@ -70,9 +70,17 @@ export interface IMaquina {
 }
 
 // ── Configuração de fabricação (singleton por tenant) ──────────────────────────
+export interface IErpConfigRedesSociais {
+    instagram?: string;
+    tiktok?: string;
+    facebook?: string;
+    youtube?: string;
+}
+
 export interface IErpConfig {
     custoEnergiaKwh: number;        // R$ por kWh — tarifa única da concessionária, compartilhada por todas as máquinas
     whatsappPrincipal?: string;     // número (DDI+DDD+número, só dígitos) que recebe os pedidos por padrão na vitrine
+    redesSociais?: IErpConfigRedesSociais;
 }
 
 // ── Kardex (ledger imutável de movimentações) ─────────────────────────────────
