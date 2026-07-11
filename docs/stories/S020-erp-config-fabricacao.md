@@ -1,6 +1,6 @@
 # S020 — Configurações fixas de fabricação (energia, máquina, depreciação)
 
-**Status:** Em andamento
+**Status:** Done
 **Módulo:** erp (precificação)
 **Prioridade:** Média
 **Data:** 2026-07-11
@@ -61,3 +61,19 @@ Tipo `ErpTipo` ganha `'config'`. `IErp.data` passa a aceitar `IErpConfig`.
 ## Rollback
 
 Reverter o commit. Sem migração destrutiva — produtos existentes não são tocados; a ausência do documento de config apenas volta a cair no fallback `2.5` hardcoded do backend (comportamento pré-S020).
+
+## Atualização 2026-07-11 — múltiplas máquinas + flag de vitrine
+
+O desenho inicial (singleton com potência/depreciação fixas) não suporta oficinas com mais de uma impressora — cada máquina tem potência e depreciação próprias. Revisado:
+
+**Múltiplas máquinas.** `IErpConfig` foi reduzido a só `custoEnergiaKwh` (tarifa única da concessionária, compartilhada). Nova entidade `IMaquina` (`{ nome, potenciaWatts, custoDepreciacaoHora, custoMaquinaHora, observacoes? }`), tipo `'maquina'` no `mErp`, com CRUD completo (`GET/POST/PUT/DELETE /erp/maquinas`) seguindo o padrão de `insumoRoutes`. `IProdutoFabril` ganhou `maquinaId?: string`; `custoMaquinaHora` no produto continua sendo o valor efetivo (snapshot), agora resolvido a partir da máquina selecionada em vez de um fallback único global.
+
+Cascata de recálculo: mudar a tarifa de energia (`PUT /erp/config`) recalcula `custoMaquinaHora` de **todas** as máquinas do tenant e propaga para os produtos vinculados a cada uma (`recalcMaquinas`), reaproveitando `calcularPrecificacao` — mesmo padrão já usado para insumo (`recalcProdutosVinculados`).
+
+**Flag de vitrine.** `IProdutoFabril.visivelNaVitrine?: boolean` (default `true`). Produto pode ser cadastrado só para controle interno do ERP (estoque, kardex, precificação) sem aparecer na loja pública. Filtro aplicado em `product.controller.ts` nos três pontos de leitura pública (`listBvaProductsFromErp`, `GET /:uuid`, `GET /slug/:appKey/:slug`) via `'data.visivelNaVitrine': { $ne: false }` — produtos antigos sem o campo continuam visíveis (não quebra nada existente).
+
+**Portal:** sub-aba "Configurações de Fabricação" dividida em duas seções — tarifa de energia (form simples) e tabela de máquinas com modal de CRUD próprio (`addMaquinaModal`). Modal de produto ganhou select de máquina (substituindo o custo fixo antigo) e checkbox "Exibir na vitrine do site".
+
+**Bug encontrado e corrigido durante o teste:** o campo `<input type="number" id="maquina-custo-hora">` era auto-preenchido com `fmt(sugerido)` (formato pt-BR com vírgula, ex. `"1,38"`), que o browser rejeita silenciosamente em input numérico — o campo ficava vazio, a validação `required` nativa bloqueava o submit, e o modal nunca fechava. Fix: `sugerido.toFixed(2)` (ponto decimal). Verificado via Playwright antes e depois do fix.
+
+**Verificação executada:** duas máquinas com potências diferentes calculando `custoMaquinaHora` distinto e correto; produto criado referenciando uma máquina herda o custo dela; mudança de tarifa global recalcula máquina + produtos vinculados em cascata (confirmado nos dois níveis); produto com `visivelNaVitrine=false` some do `/products` público mas continua acessível via `/erp/produtos` (portal); UI do portal testada via Playwright (form de energia, CRUD de máquina, select de máquina no modal de produto, checkbox de vitrine) sem erros de console.

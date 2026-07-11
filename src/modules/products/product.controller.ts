@@ -56,6 +56,7 @@ async function erpProductToPublicProduct(item: any) {
             : data.imageUrl
                 ? [{ url: data.imageUrl, alt: data.nome, isPrimary: true }]
                 : [],
+        videos: Array.isArray(data.videos) ? data.videos : [],
         variants: [],
         stock: data.estoqueAcabado ?? 0,
         weight: data.pesoGramas,
@@ -94,6 +95,7 @@ async function listBvaProductsFromErp(query: Record<string, string>) {
         appKey,
         tipo: 'produto_fabril',
         deletedAt: null,
+        'data.visivelNaVitrine': { $ne: false },
     };
     if (category) filter['data.categoria'] = category;
 
@@ -166,6 +168,7 @@ export const productRoutes = new Elysia({ prefix: '/products' })
                 uuid: params.uuid,
                 tipo: 'produto_fabril',
                 deletedAt: null,
+                'data.visivelNaVitrine': { $ne: false },
             });
             if (erpProduct) {
                 return { success: true, data: await erpProductToPublicProduct(erpProduct) };
@@ -188,6 +191,7 @@ export const productRoutes = new Elysia({ prefix: '/products' })
                     appKey: params.appKey,
                     tipo: 'produto_fabril',
                     deletedAt: null,
+                    'data.visivelNaVitrine': { $ne: false },
                 });
                 const publicProducts = await Promise.all(erpProducts.map(erpProductToPublicProduct));
                 const erpProduct = publicProducts.find(product => product.slug === params.slug);

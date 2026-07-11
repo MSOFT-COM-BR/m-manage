@@ -24,6 +24,14 @@ export interface IProdutoAttachment {
     uploadedAt: string;
 }
 
+export type ProdutoVideoPlatform = 'youtube' | 'instagram' | 'tiktok';
+
+export interface IProdutoVideo {
+    url: string;                    // URL original informada pelo usuário
+    platform: ProdutoVideoPlatform;
+    embedUrl: string;                // URL pronta para <iframe src>
+}
+
 export interface IProdutoFabril {
     nome: string;
     categoria: string;
@@ -32,15 +40,18 @@ export interface IProdutoFabril {
     insumoId: string;             // uuid do insumo principal (filamento)
     embalagemId?: string;         // uuid do insumo de embalagem
     acessoriosIds?: string[];     // outros insumos consumidos
-    custoMaquinaHora: number;     // R$/h (energia + depreciação)
+    maquinaId?: string;           // uuid da máquina usada (registro tipo 'maquina')
+    custoMaquinaHora: number;     // R$/h efetivo aplicado — snapshot no momento do cálculo (energia + depreciação da máquina selecionada, ou valor manual)
     margemAtacado: number;        // % sobre custo total
     margemVarejo: number;         // % sobre custo total
     estoqueAcabado: number;
     /** @deprecated migrado para `images`; mantido para compatibilidade de leitura de dados antigos */
     imageUrl?: string;
     images?: IProductImage[];
+    videos?: IProdutoVideo[];
     attachments?: IProdutoAttachment[];
     observacoes?: string;
+    visivelNaVitrine?: boolean;   // false = cadastrado só no ERP, não aparece na loja pública (default true)
     // campos calculados (persistidos para histórico)
     custoMateriais?: number;
     custoTotal?: number;
@@ -48,12 +59,18 @@ export interface IProdutoFabril {
     precoVarejo?: number;
 }
 
+// ── Máquina (impressora 3D) ─────────────────────────────────────────────────────
+export interface IMaquina {
+    nome: string;                   // ex: "Ender 3 V2", "Bambu Lab P1S"
+    potenciaWatts: number;          // consumo em uso
+    custoDepreciacaoHora: number;   // R$/h — depreciação/manutenção amortizada
+    custoMaquinaHora: number;       // valor final aplicado (calculado a partir da energia global + depreciação, ou sobrescrito manualmente)
+    observacoes?: string;
+}
+
 // ── Configuração de fabricação (singleton por tenant) ──────────────────────────
 export interface IErpConfig {
-    custoEnergiaKwh: number;        // R$ por kWh
-    potenciaMaquinaWatts: number;   // consumo da impressora em uso
-    custoDepreciacaoHora: number;   // R$/h — depreciação/manutenção amortizada
-    custoMaquinaHora: number;       // valor final aplicado (calculado ou sobrescrito manualmente)
+    custoEnergiaKwh: number;        // R$ por kWh — tarifa única da concessionária, compartilhada por todas as máquinas
 }
 
 // ── Kardex (ledger imutável de movimentações) ─────────────────────────────────
@@ -78,13 +95,13 @@ export interface IKardex {
 }
 
 // ── Schema unificado ──────────────────────────────────────────────────────────
-export type ErpTipo = 'insumo' | 'produto_fabril' | 'kardex' | 'config';
+export type ErpTipo = 'insumo' | 'produto_fabril' | 'kardex' | 'config' | 'maquina';
 
 export interface IErp extends Document {
     uuid: string;
     appKey: string;
     tipo: ErpTipo;
-    data: IInsumo | IProdutoFabril | IKardex | IErpConfig;
+    data: IInsumo | IProdutoFabril | IKardex | IErpConfig | IMaquina;
     deletedAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
@@ -97,7 +114,7 @@ const erpSchema = new Schema<IErp>(
         tipo: {
             type: String,
             required: true,
-            enum: ['insumo', 'produto_fabril', 'kardex', 'config'],
+            enum: ['insumo', 'produto_fabril', 'kardex', 'config', 'maquina'],
             index: true,
         },
         data: { type: Schema.Types.Mixed, required: true },

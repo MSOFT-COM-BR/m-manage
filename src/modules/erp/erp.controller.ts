@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia';
 import { mErp } from '../../models/mErp';
-import type { IInsumo, IProdutoAttachment, IProdutoFabril, IKardex, IErpConfig, ErpTipo } from '../../models/mErp';
+import type { IInsumo, IProdutoAttachment, IProdutoFabril, IProdutoVideo, IKardex, IErpConfig, IMaquina, ErpTipo } from '../../models/mErp';
 import type { IProductImage } from '../../models/mProduct';
 import { checkTenantAccess } from '../../middleware/tenantPlugin';
 import { saveAnyUpload, saveUpload, deleteUpload } from '../../services/uploadService';
@@ -26,6 +26,39 @@ function currentImages(prod: IProdutoFabril): IProductImage[] {
     return [];
 }
 
+// Detecta a plataforma pela URL e gera a URL de embed (<iframe src>) correspondente.
+function parseVideoUrl(rawUrl: string): IProdutoVideo | null {
+    let url: URL;
+    try { url = new URL(rawUrl); } catch { return null; }
+    const host = url.hostname.replace(/^www\./, '');
+
+    // YouTube: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/shorts/ID
+    if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtu.be') {
+        let videoId = '';
+        if (host === 'youtu.be') videoId = url.pathname.slice(1);
+        else if (url.pathname.startsWith('/shorts/')) videoId = url.pathname.split('/')[2];
+        else videoId = url.searchParams.get('v') || '';
+        if (!videoId) return null;
+        return { url: rawUrl, platform: 'youtube', embedUrl: `https://www.youtube.com/embed/${videoId}` };
+    }
+
+    // Instagram: instagram.com/reel/CODE/ ou /p/CODE/
+    if (host === 'instagram.com') {
+        const match = url.pathname.match(/\/(reel|p|tv)\/([^/]+)/);
+        if (!match) return null;
+        return { url: rawUrl, platform: 'instagram', embedUrl: `https://www.instagram.com/${match[1]}/${match[2]}/embed` };
+    }
+
+    // TikTok: tiktok.com/@user/video/ID
+    if (host === 'tiktok.com') {
+        const match = url.pathname.match(/\/video\/(\d+)/);
+        if (!match) return null;
+        return { url: rawUrl, platform: 'tiktok', embedUrl: `https://www.tiktok.com/embed/v2/${match[1]}` };
+    }
+
+    return null;
+}
+
 async function findItem(uuid: string, tipo: ErpTipo, ctx: any, minRole: 'viewer' | 'editor' | 'owner', includeDeleted = false) {
     const filter: any = { uuid, tipo };
     if (!includeDeleted) filter.deletedAt = null;
@@ -39,11 +72,11 @@ async function findItem(uuid: string, tipo: ErpTipo, ctx: any, minRole: 'viewer'
 
 const DEFAULT_CUSTO_MAQUINA_HORA = 2.5;
 
-function calcCustoMaquinaHora(cfg: Partial<IErpConfig>): number {
-    const kwh = Number(cfg.custoEnergiaKwh ?? 0);
-    const watts = Number(cfg.potenciaMaquinaWatts ?? 0);
-    const deprec = Number(cfg.custoDepreciacaoHora ?? 0);
-    return round2((watts / 1000) * kwh + deprec);
+// custoEnergiaKwh é a tarifa única do tenant (config global); potência e depreciação são por máquina.
+function calcCustoMaquinaHora(custoEnergiaKwh: number, maquina: Pick<IMaquina, 'potenciaWatts' | 'custoDepreciacaoHora'>): number {
+    const watts = Number(maquina.potenciaWatts ?? 0);
+    const deprec = Number(maquina.custoDepreciacaoHora ?? 0);
+    return round2((watts / 1000) * Number(custoEnergiaKwh ?? 0) + deprec);
 }
 
 // Config é singleton por tenant — uuid determinístico evita corrida de criação duplicada.
@@ -54,12 +87,15 @@ function configUuid(appKey: string): string {
 async function getErpConfig(appKey: string): Promise<IErpConfig> {
     const item = await mErp.findOne({ uuid: configUuid(appKey), tipo: 'config' });
     if (item) return item.data as IErpConfig;
-    return {
-        custoEnergiaKwh: 0,
-        potenciaMaquinaWatts: 0,
-        custoDepreciacaoHora: 0,
-        custoMaquinaHora: DEFAULT_CUSTO_MAQUINA_HORA,
-    };
+    return { custoEnergiaKwh: 0 };
+}
+
+// Resolve o custoMaquinaHora efetivo de um produto: máquina selecionada > default fixo.
+async function resolveCustoMaquinaHora(appKey: string, maquinaId: string | undefined): Promise<number> {
+    if (!maquinaId) return DEFAULT_CUSTO_MAQUINA_HORA;
+    const maquina = await mErp.findOne({ uuid: maquinaId, appKey, tipo: 'maquina', deletedAt: null });
+    if (!maquina) return DEFAULT_CUSTO_MAQUINA_HORA;
+    return (maquina.data as IMaquina).custoMaquinaHora ?? DEFAULT_CUSTO_MAQUINA_HORA;
 }
 
 function isAdminJwt(ctx: any): boolean {
@@ -277,7 +313,7 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
         const uuid = crypto.randomUUID();
         const custoMaquinaHora = body.custoMaquinaHora != null
             ? Number(body.custoMaquinaHora)
-            : (await getErpConfig(appKey)).custoMaquinaHora;
+            : await resolveCustoMaquinaHora(appKey, body.maquinaId);
         const prod: IProdutoFabril = {
             nome: body.nome,
             categoria: body.categoria || 'Geral',
@@ -286,11 +322,13 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
             insumoId: body.insumoId,
             embalagemId: body.embalagemId,
             acessoriosIds: body.acessoriosIds || [],
+            maquinaId: body.maquinaId || undefined,
             custoMaquinaHora,
             margemAtacado: Number(body.margemAtacado ?? 120),
             margemVarejo: Number(body.margemVarejo ?? 250),
             estoqueAcabado: Number(body.estoqueAcabado ?? 0),
             observacoes: body.observacoes,
+            visivelNaVitrine: body.visivelNaVitrine !== false,
         };
         // Calcula e persiste preços no momento da criação
         try {
@@ -313,12 +351,19 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
         if (err) return err;
         const { appKey: _ak, ...body } = ctx.body as any;
         const current = item!.data as IProdutoFabril;
+        // Máquina trocada sem custoMaquinaHora explícito → recalcula a partir da nova máquina.
+        const trocouMaquina = body.maquinaId !== undefined && body.maquinaId !== current.maquinaId;
+        const custoMaquinaHora = body.custoMaquinaHora != null
+            ? Number(body.custoMaquinaHora)
+            : trocouMaquina
+                ? await resolveCustoMaquinaHora(item!.appKey, body.maquinaId)
+                : current.custoMaquinaHora;
         const updated: IProdutoFabril = {
             ...current,
             ...body,
             pesoGramas: body.pesoGramas != null ? Number(body.pesoGramas) : current.pesoGramas,
             tempoHoras: body.tempoHoras != null ? Number(body.tempoHoras) : current.tempoHoras,
-            custoMaquinaHora: body.custoMaquinaHora != null ? Number(body.custoMaquinaHora) : current.custoMaquinaHora,
+            custoMaquinaHora,
             margemAtacado: body.margemAtacado != null ? Number(body.margemAtacado) : current.margemAtacado,
             margemVarejo: body.margemVarejo != null ? Number(body.margemVarejo) : current.margemVarejo,
             estoqueAcabado: body.estoqueAcabado != null ? Number(body.estoqueAcabado) : current.estoqueAcabado,
@@ -478,6 +523,49 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
         return { success: true, images: updated, data: flat(saved) };
     })
 
+    // POST /erp/produtos/:uuid/videos — editor+  (adiciona vídeo do YouTube/Instagram/TikTok pela URL)
+    .post('/:uuid/videos', async (ctx: any) => {
+        const { item, err } = await findItem(ctx.params.uuid, 'produto_fabril', ctx, 'editor');
+        if (err) return err;
+        const { url } = ctx.body as any;
+        if (!url) { ctx.set.status = 400; return { success: false, error: 'Campo "url" obrigatório' }; }
+        const video = parseVideoUrl(url);
+        if (!video) {
+            ctx.set.status = 400;
+            return { success: false, error: 'URL não reconhecida. Use um link de vídeo do YouTube, Instagram ou TikTok.' };
+        }
+        const current = item!.data as IProdutoFabril;
+        const existing = Array.isArray(current.videos) ? current.videos : [];
+        if (existing.some(v => v.url === video.url)) {
+            ctx.set.status = 409;
+            return { success: false, error: 'Este vídeo já foi adicionado ao produto' };
+        }
+        const videos = [...existing, video];
+        const saved = await mErp.findOneAndUpdate(
+            { uuid: ctx.params.uuid },
+            { $set: { 'data.videos': videos } },
+            { new: true }
+        );
+        return { success: true, videos, data: flat(saved) };
+    })
+
+    // DELETE /erp/produtos/:uuid/videos?url= — editor+
+    .delete('/:uuid/videos', async (ctx: any) => {
+        const { item, err } = await findItem(ctx.params.uuid, 'produto_fabril', ctx, 'editor');
+        if (err) return err;
+        const targetUrl = (ctx.query as Record<string, string>)?.url;
+        if (!targetUrl) { ctx.set.status = 400; return { success: false, error: 'Query "url" obrigatória' }; }
+        const current = item!.data as IProdutoFabril;
+        const existing = Array.isArray(current.videos) ? current.videos : [];
+        const videos = existing.filter(v => v.url !== targetUrl);
+        const saved = await mErp.findOneAndUpdate(
+            { uuid: ctx.params.uuid },
+            { $set: { 'data.videos': videos } },
+            { new: true }
+        );
+        return { success: true, message: 'Vídeo removido', videos, data: flat(saved) };
+    })
+
     // POST /erp/produtos/:uuid/attachments — editor+ (qualquer tipo de arquivo)
     .post('/:uuid/attachments', async (ctx: any) => {
         const { item, err } = await findItem(ctx.params.uuid, 'produto_fabril', ctx, 'editor');
@@ -572,7 +660,7 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
         return { success: true, message: 'Produto restaurado', data: flat(restored) };
     });
 
-// ── CONFIGURAÇÃO DE FABRICAÇÃO (singleton por tenant) ──────────────────────────
+// ── CONFIGURAÇÃO DE FABRICAÇÃO (singleton por tenant — tarifa de energia) ──────
 
 const configRoutes = new Elysia({ prefix: '/config' })
 
@@ -586,27 +674,95 @@ const configRoutes = new Elysia({ prefix: '/config' })
         return { success: true, data };
     })
 
-    // PUT /erp/config — editor+  (upsert; recalcula custoMaquinaHora quando não vem explícito)
+    // PUT /erp/config — editor+  (upsert; recalcula custoMaquinaHora de todas as máquinas do tenant)
     .put('/', async (ctx: any) => {
         const guard = await checkTenantAccess(ctx, 'editor');
         if (guard) return guard;
         const { appKey, ...body } = ctx.body as any;
         if (!appKey) { ctx.set.status = 400; return { success: false, error: 'appKey é obrigatório' }; }
-        const data: IErpConfig = {
-            custoEnergiaKwh: Number(body.custoEnergiaKwh ?? 0),
-            potenciaMaquinaWatts: Number(body.potenciaMaquinaWatts ?? 0),
-            custoDepreciacaoHora: Number(body.custoDepreciacaoHora ?? 0),
-            custoMaquinaHora: 0,
-        };
-        data.custoMaquinaHora = body.custoMaquinaHora != null
-            ? Number(body.custoMaquinaHora)
-            : calcCustoMaquinaHora(data);
+        const data: IErpConfig = { custoEnergiaKwh: Number(body.custoEnergiaKwh ?? 0) };
         const saved = await mErp.findOneAndUpdate(
             { uuid: configUuid(appKey), tipo: 'config' },
             { $set: { uuid: configUuid(appKey), appKey, tipo: 'config', data, deletedAt: null } },
             { new: true, upsert: true }
         );
+        await recalcMaquinas(appKey, data.custoEnergiaKwh);
         return { success: true, data: flat(saved) };
+    });
+
+// ── MÁQUINAS (impressoras 3D) ───────────────────────────────────────────────────
+
+const maquinaRoutes = new Elysia({ prefix: '/maquinas' })
+
+    // GET /erp/maquinas?appKey= — viewer+
+    .get('/', async (ctx: any) => {
+        const guard = await checkTenantAccess(ctx, 'viewer');
+        if (guard) return guard;
+        const { appKey } = ctx.query as Record<string, string>;
+        const items = await mErp.find({ appKey, tipo: 'maquina', deletedAt: null }).sort({ 'data.nome': 1 });
+        return { success: true, count: items.length, data: items.map(flat) };
+    })
+
+    // POST /erp/maquinas — editor+
+    .post('/', async (ctx: any) => {
+        const guard = await checkTenantAccess(ctx, 'editor');
+        if (guard) return guard;
+        const { appKey, ...body } = ctx.body as any;
+        if (!appKey || !body.nome || body.potenciaWatts == null) {
+            ctx.set.status = 400;
+            return { success: false, error: 'Campos obrigatórios: appKey, nome, potenciaWatts' };
+        }
+        const cfg = await getErpConfig(appKey);
+        const potenciaWatts = Number(body.potenciaWatts);
+        const custoDepreciacaoHora = Number(body.custoDepreciacaoHora ?? 0);
+        const data: IMaquina = {
+            nome: body.nome,
+            potenciaWatts,
+            custoDepreciacaoHora,
+            custoMaquinaHora: body.custoMaquinaHora != null
+                ? Number(body.custoMaquinaHora)
+                : calcCustoMaquinaHora(cfg.custoEnergiaKwh, { potenciaWatts, custoDepreciacaoHora }),
+            observacoes: body.observacoes,
+        };
+        const uuid = crypto.randomUUID();
+        const item = await mErp.create({ uuid, appKey, tipo: 'maquina', data });
+        ctx.set.status = 201;
+        return { success: true, data: flat(item) };
+    })
+
+    // PUT /erp/maquinas/:uuid — editor+
+    .put('/:uuid', async (ctx: any) => {
+        const { item, err } = await findItem(ctx.params.uuid, 'maquina', ctx, 'editor');
+        if (err) return err;
+        const { appKey: _ak, ...body } = ctx.body as any;
+        const current = item!.data as IMaquina;
+        const potenciaWatts = body.potenciaWatts != null ? Number(body.potenciaWatts) : current.potenciaWatts;
+        const custoDepreciacaoHora = body.custoDepreciacaoHora != null ? Number(body.custoDepreciacaoHora) : current.custoDepreciacaoHora;
+        const cfg = await getErpConfig(item!.appKey);
+        const updated: IMaquina = {
+            ...current,
+            ...body,
+            potenciaWatts,
+            custoDepreciacaoHora,
+            custoMaquinaHora: body.custoMaquinaHora != null
+                ? Number(body.custoMaquinaHora)
+                : calcCustoMaquinaHora(cfg.custoEnergiaKwh, { potenciaWatts, custoDepreciacaoHora }),
+        };
+        const saved = await mErp.findOneAndUpdate(
+            { uuid: ctx.params.uuid },
+            { $set: { data: updated } },
+            { new: true }
+        );
+        return { success: true, data: flat(saved) };
+    })
+
+    // DELETE /erp/maquinas/:uuid — admin only (soft delete)
+    .delete('/:uuid', async (ctx: any) => {
+        if (!isAdminJwt(ctx)) { ctx.set.status = 403; return { success: false, error: 'Apenas administradores podem arquivar máquinas' }; }
+        const { item, err } = await findItem(ctx.params.uuid, 'maquina', ctx, 'owner');
+        if (err) return err;
+        await mErp.findOneAndUpdate({ uuid: ctx.params.uuid }, { $set: { deletedAt: new Date() } });
+        return { success: true, message: 'Máquina arquivada' };
     });
 
 // ── KARDEX ────────────────────────────────────────────────────────────────────
@@ -701,6 +857,32 @@ async function recalcProdutosVinculados(appKey: string, insumoUuid: string) {
     }
 }
 
+// Energia global mudou → recalcula custoMaquinaHora de cada máquina do tenant e propaga para os produtos que a usam.
+async function recalcMaquinas(appKey: string, custoEnergiaKwh: number) {
+    const maquinas = await mErp.find({ appKey, tipo: 'maquina', deletedAt: null });
+    for (const m of maquinas) {
+        const maq = m.data as IMaquina;
+        const custoMaquinaHora = calcCustoMaquinaHora(custoEnergiaKwh, maq);
+        await mErp.findOneAndUpdate({ uuid: m.uuid }, { $set: { 'data.custoMaquinaHora': custoMaquinaHora } });
+
+        const produtos = await mErp.find({ appKey, tipo: 'produto_fabril', 'data.maquinaId': m.uuid });
+        for (const p of produtos) {
+            const prod = { ...(p.data as IProdutoFabril), custoMaquinaHora };
+            const preco = await calcularPrecificacao(appKey, prod);
+            await mErp.findOneAndUpdate(
+                { uuid: p.uuid },
+                { $set: {
+                    'data.custoMaquinaHora': custoMaquinaHora,
+                    'data.custoMateriais': preco.custoMateriais,
+                    'data.custoTotal': preco.custoTotal,
+                    'data.precoAtacado': preco.precoAtacado,
+                    'data.precoVarejo': preco.precoVarejo,
+                } }
+            );
+        }
+    }
+}
+
 function round2(n: number) { return Math.round(n * 100) / 100; }
 
 // ── Export ────────────────────────────────────────────────────────────────────
@@ -709,4 +891,5 @@ export const erpRoutes = new Elysia({ prefix: '/erp' })
     .use(insumoRoutes)
     .use(produtoRoutes)
     .use(configRoutes)
+    .use(maquinaRoutes)
     .use(kardexRoutes);
