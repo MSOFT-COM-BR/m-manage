@@ -2,7 +2,7 @@ import { extname } from 'node:path';
 import { s3 } from '../config/s3';
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
-const MAX_ANY_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
+const MAX_ANY_FILE_SIZE_BYTES = 80 * 1024 * 1024; // 80 MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 
@@ -44,7 +44,7 @@ export async function saveUpload(
         throw new Error(`Tipo não permitido: ${file.type} / ${ext}. Use jpeg, png, webp ou gif.`);
     }
     if (file.size > MAX_SIZE_BYTES) {
-        throw new Error(`Arquivo muito grande: ${(file.size / 1024 / 1024).toFixed(1)}MB (máx 5MB).`);
+        throw new Error(`Arquivo muito grande: ${(file.size / 1024 / 1024).toFixed(1)}MB (máx ${MAX_SIZE_BYTES / 1024 / 1024}MB).`);
     }
 
     const filename = `${crypto.randomUUID()}${ext}`;
@@ -64,7 +64,7 @@ export async function saveAnyUpload(
     subdir: string,
 ): Promise<UploadResult> {
     if (file.size > MAX_ANY_FILE_SIZE_BYTES) {
-        throw new Error(`Arquivo muito grande: ${(file.size / 1024 / 1024).toFixed(1)}MB (máx 25MB).`);
+        throw new Error(`Arquivo muito grande: ${(file.size / 1024 / 1024).toFixed(1)}MB (máx ${MAX_ANY_FILE_SIZE_BYTES / 1024 / 1024}MB).`);
     }
 
     const ext = extname(file.name).toLowerCase();
