@@ -1,4 +1,5 @@
 import mongoose, { Document, Schema } from 'mongoose';
+import type { IProductImage } from './mProduct';
 
 // ── Insumo (filamentos, embalagens, acessórios) ───────────────────────────────
 export interface IInsumo {
@@ -35,7 +36,9 @@ export interface IProdutoFabril {
     margemAtacado: number;        // % sobre custo total
     margemVarejo: number;         // % sobre custo total
     estoqueAcabado: number;
+    /** @deprecated migrado para `images`; mantido para compatibilidade de leitura de dados antigos */
     imageUrl?: string;
+    images?: IProductImage[];
     attachments?: IProdutoAttachment[];
     observacoes?: string;
     // campos calculados (persistidos para histórico)
@@ -43,6 +46,14 @@ export interface IProdutoFabril {
     custoTotal?: number;
     precoAtacado?: number;
     precoVarejo?: number;
+}
+
+// ── Configuração de fabricação (singleton por tenant) ──────────────────────────
+export interface IErpConfig {
+    custoEnergiaKwh: number;        // R$ por kWh
+    potenciaMaquinaWatts: number;   // consumo da impressora em uso
+    custoDepreciacaoHora: number;   // R$/h — depreciação/manutenção amortizada
+    custoMaquinaHora: number;       // valor final aplicado (calculado ou sobrescrito manualmente)
 }
 
 // ── Kardex (ledger imutável de movimentações) ─────────────────────────────────
@@ -67,13 +78,13 @@ export interface IKardex {
 }
 
 // ── Schema unificado ──────────────────────────────────────────────────────────
-export type ErpTipo = 'insumo' | 'produto_fabril' | 'kardex';
+export type ErpTipo = 'insumo' | 'produto_fabril' | 'kardex' | 'config';
 
 export interface IErp extends Document {
     uuid: string;
     appKey: string;
     tipo: ErpTipo;
-    data: IInsumo | IProdutoFabril | IKardex;
+    data: IInsumo | IProdutoFabril | IKardex | IErpConfig;
     deletedAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
@@ -86,7 +97,7 @@ const erpSchema = new Schema<IErp>(
         tipo: {
             type: String,
             required: true,
-            enum: ['insumo', 'produto_fabril', 'kardex'],
+            enum: ['insumo', 'produto_fabril', 'kardex', 'config'],
             index: true,
         },
         data: { type: Schema.Types.Mixed, required: true },

@@ -51,9 +51,11 @@ async function erpProductToPublicProduct(item: any) {
         category: data.categoria || 'Geral',
         tags: ['produto-3d', data.categoria || 'Geral'].filter(Boolean),
         status: 'active',
-        images: data.imageUrl
-            ? [{ url: data.imageUrl, alt: data.nome, isPrimary: true }]
-            : [],
+        images: Array.isArray(data.images) && data.images.length
+            ? data.images.map(img => ({ url: img.url, alt: data.nome, isPrimary: !!img.isPrimary }))
+            : data.imageUrl
+                ? [{ url: data.imageUrl, alt: data.nome, isPrimary: true }]
+                : [],
         variants: [],
         stock: data.estoqueAcabado ?? 0,
         weight: data.pesoGramas,

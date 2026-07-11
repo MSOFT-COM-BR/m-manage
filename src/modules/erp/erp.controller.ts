@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia';
 import { mErp } from '../../models/mErp';
-import type { IInsumo, IProdutoAttachment, IProdutoFabril, IKardex, ErpTipo } from '../../models/mErp';
+import type { IInsumo, IProdutoAttachment, IProdutoFabril, IKardex, IErpConfig, ErpTipo } from '../../models/mErp';
+import type { IProductImage } from '../../models/mProduct';
 import { checkTenantAccess } from '../../middleware/tenantPlugin';
 import { saveAnyUpload, saveUpload, deleteUpload } from '../../services/uploadService';
 import { calcularPrecificacao } from '../../services/erpPricing';
@@ -18,6 +19,13 @@ function normalizeMultipartFiles(value: unknown): File[] {
     });
 }
 
+// Produtos antigos só têm `imageUrl` (campo único, pré-galeria) — lê como array de 1 imagem primária.
+function currentImages(prod: IProdutoFabril): IProductImage[] {
+    if (Array.isArray(prod.images)) return prod.images;
+    if (prod.imageUrl) return [{ url: prod.imageUrl, isPrimary: true }];
+    return [];
+}
+
 async function findItem(uuid: string, tipo: ErpTipo, ctx: any, minRole: 'viewer' | 'editor' | 'owner', includeDeleted = false) {
     const filter: any = { uuid, tipo };
     if (!includeDeleted) filter.deletedAt = null;
@@ -27,6 +35,31 @@ async function findItem(uuid: string, tipo: ErpTipo, ctx: any, minRole: 'viewer'
     const guard = await checkTenantAccess(ctx, minRole);
     if (guard) return { err: guard };
     return { item };
+}
+
+const DEFAULT_CUSTO_MAQUINA_HORA = 2.5;
+
+function calcCustoMaquinaHora(cfg: Partial<IErpConfig>): number {
+    const kwh = Number(cfg.custoEnergiaKwh ?? 0);
+    const watts = Number(cfg.potenciaMaquinaWatts ?? 0);
+    const deprec = Number(cfg.custoDepreciacaoHora ?? 0);
+    return round2((watts / 1000) * kwh + deprec);
+}
+
+// Config é singleton por tenant — uuid determinístico evita corrida de criação duplicada.
+function configUuid(appKey: string): string {
+    return `config-${appKey}`;
+}
+
+async function getErpConfig(appKey: string): Promise<IErpConfig> {
+    const item = await mErp.findOne({ uuid: configUuid(appKey), tipo: 'config' });
+    if (item) return item.data as IErpConfig;
+    return {
+        custoEnergiaKwh: 0,
+        potenciaMaquinaWatts: 0,
+        custoDepreciacaoHora: 0,
+        custoMaquinaHora: DEFAULT_CUSTO_MAQUINA_HORA,
+    };
 }
 
 function isAdminJwt(ctx: any): boolean {
@@ -242,6 +275,9 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
             return { success: false, error: 'Campos obrigatórios: appKey, nome, insumoId, pesoGramas' };
         }
         const uuid = crypto.randomUUID();
+        const custoMaquinaHora = body.custoMaquinaHora != null
+            ? Number(body.custoMaquinaHora)
+            : (await getErpConfig(appKey)).custoMaquinaHora;
         const prod: IProdutoFabril = {
             nome: body.nome,
             categoria: body.categoria || 'Geral',
@@ -250,7 +286,7 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
             insumoId: body.insumoId,
             embalagemId: body.embalagemId,
             acessoriosIds: body.acessoriosIds || [],
-            custoMaquinaHora: Number(body.custoMaquinaHora ?? 2.5),
+            custoMaquinaHora,
             margemAtacado: Number(body.margemAtacado ?? 120),
             margemVarejo: Number(body.margemVarejo ?? 250),
             estoqueAcabado: Number(body.estoqueAcabado ?? 0),
@@ -363,43 +399,83 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
         };
     })
 
-    // POST /erp/produtos/:uuid/image — editor+
+    // POST /erp/produtos/:uuid/image — editor+  (adiciona 1+ imagens à galeria; campo "image" ou "images")
     .post('/:uuid/image', async (ctx: any) => {
         const { item, err } = await findItem(ctx.params.uuid, 'produto_fabril', ctx, 'editor');
         if (err) return err;
-        const file: File | undefined = ctx.body?.image;
-        if (!file || typeof file === 'string') {
+        const files = [
+            ...normalizeMultipartFiles(ctx.body?.images),
+            ...normalizeMultipartFiles(ctx.body?.image),
+        ];
+        if (!files.length) {
             ctx.set.status = 400;
             return { success: false, error: 'Campo "image" obrigatório (multipart/form-data)' };
         }
         try {
-            const oldUrl = (item!.data as IProdutoFabril).imageUrl;
-            if (oldUrl?.startsWith('/uploads/')) try { await deleteUpload(oldUrl); } catch {}
-            const result = await saveUpload(file, `erp/${item!.appKey}`);
-            await mErp.findOneAndUpdate(
+            const current = item!.data as IProdutoFabril;
+            const existing = currentImages(current);
+            const uploaded: IProductImage[] = [];
+            for (const file of files) {
+                const result = await saveUpload(file, `erp/${item!.appKey}`);
+                uploaded.push({ url: result.url, isPrimary: false });
+            }
+            const merged = [...existing, ...uploaded];
+            if (!merged.some(img => img.isPrimary)) merged[0].isPrimary = true;
+            const saved = await mErp.findOneAndUpdate(
                 { uuid: ctx.params.uuid },
-                { $set: { 'data.imageUrl': result.url } },
+                { $set: { 'data.images': merged }, $unset: { 'data.imageUrl': 1 } },
                 { new: true }
             );
-            return { success: true, imageUrl: result.url, size: result.size };
+            return { success: true, images: merged, data: flat(saved) };
         } catch (e: any) {
             ctx.set.status = 400;
             return { success: false, error: e.message };
         }
     })
 
-    // DELETE /erp/produtos/:uuid/image — editor+
+    // DELETE /erp/produtos/:uuid/image — editor+  (?url= remove uma imagem específica; sem query remove todas)
     .delete('/:uuid/image', async (ctx: any) => {
         const { item, err } = await findItem(ctx.params.uuid, 'produto_fabril', ctx, 'editor');
         if (err) return err;
-        const url = (item!.data as IProdutoFabril).imageUrl;
-        if (url?.startsWith('/uploads/')) try { await deleteUpload(url); } catch {}
+        const current = item!.data as IProdutoFabril;
+        const images = currentImages(current);
+        const targetUrl = (ctx.query as Record<string, string>)?.url;
+
+        const toRemove = targetUrl ? images.filter(img => img.url === targetUrl) : images;
+        for (const img of toRemove) {
+            if (img.url?.startsWith('/uploads/')) try { await deleteUpload(img.url); } catch {}
+        }
+
+        const remaining = targetUrl ? images.filter(img => img.url !== targetUrl) : [];
+        if (remaining.length && !remaining.some(img => img.isPrimary)) remaining[0].isPrimary = true;
+
         await mErp.findOneAndUpdate(
             { uuid: ctx.params.uuid },
-            { $unset: { 'data.imageUrl': 1 } },
+            { $set: { 'data.images': remaining }, $unset: { 'data.imageUrl': 1 } },
             { new: true }
         );
-        return { success: true, message: 'Imagem removida' };
+        return { success: true, message: 'Imagem removida', images: remaining };
+    })
+
+    // PATCH /erp/produtos/:uuid/image/primary — editor+  (define a imagem capa da galeria)
+    .patch('/:uuid/image/primary', async (ctx: any) => {
+        const { item, err } = await findItem(ctx.params.uuid, 'produto_fabril', ctx, 'editor');
+        if (err) return err;
+        const { url } = ctx.body as any;
+        if (!url) { ctx.set.status = 400; return { success: false, error: 'Campo "url" obrigatório' }; }
+        const current = item!.data as IProdutoFabril;
+        const images = currentImages(current);
+        if (!images.some(img => img.url === url)) {
+            ctx.set.status = 404;
+            return { success: false, error: 'Imagem não encontrada na galeria do produto' };
+        }
+        const updated = images.map(img => ({ ...img, isPrimary: img.url === url }));
+        const saved = await mErp.findOneAndUpdate(
+            { uuid: ctx.params.uuid },
+            { $set: { 'data.images': updated } },
+            { new: true }
+        );
+        return { success: true, images: updated, data: flat(saved) };
     })
 
     // POST /erp/produtos/:uuid/attachments — editor+ (qualquer tipo de arquivo)
@@ -494,6 +570,43 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
             { new: true }
         );
         return { success: true, message: 'Produto restaurado', data: flat(restored) };
+    });
+
+// ── CONFIGURAÇÃO DE FABRICAÇÃO (singleton por tenant) ──────────────────────────
+
+const configRoutes = new Elysia({ prefix: '/config' })
+
+    // GET /erp/config?appKey= — viewer+  (nunca 404: retorna defaults se ainda não configurado)
+    .get('/', async (ctx: any) => {
+        const guard = await checkTenantAccess(ctx, 'viewer');
+        if (guard) return guard;
+        const { appKey } = ctx.query as Record<string, string>;
+        if (!appKey) { ctx.set.status = 400; return { success: false, error: 'appKey é obrigatório' }; }
+        const data = await getErpConfig(appKey);
+        return { success: true, data };
+    })
+
+    // PUT /erp/config — editor+  (upsert; recalcula custoMaquinaHora quando não vem explícito)
+    .put('/', async (ctx: any) => {
+        const guard = await checkTenantAccess(ctx, 'editor');
+        if (guard) return guard;
+        const { appKey, ...body } = ctx.body as any;
+        if (!appKey) { ctx.set.status = 400; return { success: false, error: 'appKey é obrigatório' }; }
+        const data: IErpConfig = {
+            custoEnergiaKwh: Number(body.custoEnergiaKwh ?? 0),
+            potenciaMaquinaWatts: Number(body.potenciaMaquinaWatts ?? 0),
+            custoDepreciacaoHora: Number(body.custoDepreciacaoHora ?? 0),
+            custoMaquinaHora: 0,
+        };
+        data.custoMaquinaHora = body.custoMaquinaHora != null
+            ? Number(body.custoMaquinaHora)
+            : calcCustoMaquinaHora(data);
+        const saved = await mErp.findOneAndUpdate(
+            { uuid: configUuid(appKey), tipo: 'config' },
+            { $set: { uuid: configUuid(appKey), appKey, tipo: 'config', data, deletedAt: null } },
+            { new: true, upsert: true }
+        );
+        return { success: true, data: flat(saved) };
     });
 
 // ── KARDEX ────────────────────────────────────────────────────────────────────
@@ -595,4 +708,5 @@ function round2(n: number) { return Math.round(n * 100) / 100; }
 export const erpRoutes = new Elysia({ prefix: '/erp' })
     .use(insumoRoutes)
     .use(produtoRoutes)
+    .use(configRoutes)
     .use(kardexRoutes);
