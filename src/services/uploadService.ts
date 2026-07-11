@@ -2,7 +2,7 @@ import { extname } from 'node:path';
 import { s3 } from '../config/s3';
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
-const MAX_ANY_FILE_SIZE_BYTES = 80 * 1024 * 1024; // 80 MB
+export const MAX_ANY_FILE_SIZE_BYTES = 80 * 1024 * 1024; // 80 MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 
