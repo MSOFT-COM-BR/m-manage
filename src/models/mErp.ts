@@ -34,12 +34,18 @@ export interface IProdutoVideo {
     embedUrl: string;                // URL pronta para <iframe src>
 }
 
+export interface IProdutoFilamento {
+    insumoId: string;                // uuid do filamento/cor usada
+    gramas: number;                  // consumo desta cor por unidade produzida
+}
+
 export interface IProdutoFabril {
     nome: string;
     categoria: string;
-    pesoGramas: number;           // consumo de filamento por unidade
+    pesoGramas: number;           // consumo total de filamento por unidade
     tempoHoras: number;           // tempo de impressão
-    insumoId: string;             // uuid do insumo principal (filamento)
+    insumoId: string;             // uuid do insumo principal (compatibilidade; 1º item de filamentos)
+    filamentos?: IProdutoFilamento[]; // consumo detalhado por filamento/cor
     embalagemId?: string;         // uuid do insumo de embalagem
     acessoriosIds?: string[];     // outros insumos consumidos
     maquinaId?: string;           // uuid da máquina usada (registro tipo 'maquina')

@@ -14,10 +14,10 @@ const insumos = [
 ] satisfies Array<IInsumo & { id: string }>;
 
 const produtos = [
-    { id: 'prod-1', nome: 'Dragao Articulado Sensorial (20cm)', categoria: 'Animais 3D', pesoGramas: 85, tempoHoras: 3.5, insumoId: 'ins-1', embalagemId: 'ins-4', estoqueAcabado: 14, custoMaquinaHora: 2.50, margemAtacado: 120, margemVarejo: 250, imageUrl: 'src/assets/img/products/dragao-articulado-sensorial.svg' },
-    { id: 'prod-2', nome: 'Dragao Imperial Multicolor Seda (30cm)', categoria: 'Animais 3D', pesoGramas: 180, tempoHoras: 7.0, insumoId: 'ins-2', embalagemId: 'ins-4', estoqueAcabado: 6, custoMaquinaHora: 2.50, margemAtacado: 140, margemVarejo: 280, imageUrl: 'src/assets/img/products/miniatura-rpg-dragao.svg' },
-    { id: 'prod-3', nome: 'Axolote Flex de Mergulho (15cm)', categoria: 'Animais 3D', pesoGramas: 50, tempoHoras: 2.0, insumoId: 'ins-3', embalagemId: 'ins-4', estoqueAcabado: 22, custoMaquinaHora: 2.50, margemAtacado: 110, margemVarejo: 240, imageUrl: 'src/assets/img/products/polvo-humor-articulado.svg' },
-    { id: 'prod-4', nome: 'Chaveiro Tatil Fidget Cubo Infinito', categoria: 'Chaveiros', pesoGramas: 25, tempoHoras: 1.0, insumoId: 'ins-1', embalagemId: 'ins-5', estoqueAcabado: 45, custoMaquinaHora: 2.00, margemAtacado: 150, margemVarejo: 300, imageUrl: 'src/assets/img/products/cubo-infinito-foco.svg' },
+    { id: 'prod-1', nome: 'Dragao Articulado Sensorial (20cm)', categoria: 'Animais 3D', pesoGramas: 85, tempoHoras: 3.5, insumoId: 'ins-1', filamentos: [{ insumoId: 'ins-1', gramas: 85 }], embalagemId: 'ins-4', estoqueAcabado: 14, custoMaquinaHora: 2.50, margemAtacado: 120, margemVarejo: 250, imageUrl: 'src/assets/img/products/dragao-articulado-sensorial.svg' },
+    { id: 'prod-2', nome: 'Dragao Imperial Multicolor Seda (30cm)', categoria: 'Animais 3D', pesoGramas: 180, tempoHoras: 7.0, insumoId: 'ins-2', filamentos: [{ insumoId: 'ins-2', gramas: 180 }], embalagemId: 'ins-4', estoqueAcabado: 6, custoMaquinaHora: 2.50, margemAtacado: 140, margemVarejo: 280, imageUrl: 'src/assets/img/products/miniatura-rpg-dragao.svg' },
+    { id: 'prod-3', nome: 'Axolote Flex de Mergulho (15cm)', categoria: 'Animais 3D', pesoGramas: 50, tempoHoras: 2.0, insumoId: 'ins-3', filamentos: [{ insumoId: 'ins-3', gramas: 50 }], embalagemId: 'ins-4', estoqueAcabado: 22, custoMaquinaHora: 2.50, margemAtacado: 110, margemVarejo: 240, imageUrl: 'src/assets/img/products/polvo-humor-articulado.svg' },
+    { id: 'prod-4', nome: 'Chaveiro Tatil Fidget Cubo Infinito', categoria: 'Chaveiros', pesoGramas: 25, tempoHoras: 1.0, insumoId: 'ins-1', filamentos: [{ insumoId: 'ins-1', gramas: 25 }], embalagemId: 'ins-5', estoqueAcabado: 45, custoMaquinaHora: 2.00, margemAtacado: 150, margemVarejo: 300, imageUrl: 'src/assets/img/products/cubo-infinito-foco.svg' },
 ] satisfies Array<IProdutoFabril & { id: string }>;
 
 const kardex = [

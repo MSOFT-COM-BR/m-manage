@@ -1,5 +1,5 @@
 import { mErp } from '../models/mErp';
-import type { IInsumo, IProdutoFabril } from '../models/mErp';
+import type { IInsumo, IProdutoFabril, IProdutoFilamento } from '../models/mErp';
 
 export interface PrecificacaoResult {
     custoMateriais: number;   // custo de filamento + embalagem + acessórios
@@ -9,6 +9,7 @@ export interface PrecificacaoResult {
     precoVarejo: number;
     detalhes: {
         insumo: { nome: string; gramas: number; custo: number } | null;
+        insumos: { nome: string; gramas: number; custo: number }[];
         embalagem: { nome: string; custo: number } | null;
         acessorios: { nome: string; custo: number }[];
         maquina: number;
@@ -21,6 +22,7 @@ export async function calcularPrecificacao(
 ): Promise<PrecificacaoResult> {
     const detalhes: PrecificacaoResult['detalhes'] = {
         insumo: null,
+        insumos: [],
         embalagem: null,
         acessorios: [],
         maquina: 0,
@@ -28,16 +30,17 @@ export async function calcularPrecificacao(
 
     let custoMateriais = 0;
 
-    // Filamento principal (custo por grama)
-    if (prod.insumoId) {
-        const ins = await mErp.findOne({ uuid: prod.insumoId, appKey, tipo: 'insumo' });
+    const filamentos = getProdutoFilamentos(prod);
+    for (const filamento of filamentos) {
+        const ins = await mErp.findOne({ uuid: filamento.insumoId, appKey, tipo: 'insumo' });
         if (ins) {
             const d = ins.data as IInsumo;
-            const custo = prod.pesoGramas * d.custoPorUnidade;
+            const custo = filamento.gramas * d.custoPorUnidade;
             custoMateriais += custo;
-            detalhes.insumo = { nome: d.nome, gramas: prod.pesoGramas, custo };
+            detalhes.insumos.push({ nome: d.nome, gramas: filamento.gramas, custo });
         }
     }
+    detalhes.insumo = detalhes.insumos[0] || null;
 
     // Embalagem
     if (prod.embalagemId) {
@@ -78,4 +81,15 @@ export async function calcularPrecificacao(
 
 function round2(n: number) {
     return Math.round(n * 100) / 100;
+}
+
+function getProdutoFilamentos(prod: IProdutoFabril): IProdutoFilamento[] {
+    if (Array.isArray(prod.filamentos) && prod.filamentos.length) {
+        return prod.filamentos
+            .map(item => ({ insumoId: item.insumoId, gramas: Number(item.gramas || 0) }))
+            .filter(item => item.insumoId && item.gramas > 0);
+    }
+    return prod.insumoId && prod.pesoGramas > 0
+        ? [{ insumoId: prod.insumoId, gramas: Number(prod.pesoGramas) }]
+        : [];
 }

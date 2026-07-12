@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia';
 import { mErp } from '../../models/mErp';
-import type { IInsumo, IProdutoAttachment, IProdutoFabril, IProdutoVideo, IKardex, IErpConfig, IErpConfigRedesSociais, IMaquina, ErpTipo } from '../../models/mErp';
+import type { IInsumo, IProdutoAttachment, IProdutoFabril, IProdutoFilamento, IProdutoVideo, IKardex, IErpConfig, IErpConfigRedesSociais, IMaquina, ErpTipo } from '../../models/mErp';
 import type { IProductImage } from '../../models/mProduct';
 import { checkTenantAccess } from '../../middleware/tenantPlugin';
 import { saveAnyUpload, saveUpload, deleteUpload } from '../../services/uploadService';
@@ -27,6 +27,32 @@ function normalizeOptionalString(value: unknown): string | undefined {
 function normalizeColorHex(value: unknown): string | undefined {
     const text = String(value ?? '').trim();
     return /^#[0-9A-Fa-f]{6}$/.test(text) ? text.toUpperCase() : undefined;
+}
+
+function normalizeProdutoFilamentos(body: any, current?: IProdutoFabril): IProdutoFilamento[] {
+    const hasLegacyMaterialUpdate = body?.insumoId !== undefined || body?.pesoGramas !== undefined;
+    const source = Array.isArray(body?.filamentos)
+        ? body.filamentos
+        : hasLegacyMaterialUpdate
+            ? undefined
+            : current?.filamentos;
+    if (Array.isArray(source) && source.length) {
+        const rows = source
+            .map((item: any) => ({
+                insumoId: String(item?.insumoId || '').trim(),
+                gramas: Number(item?.gramas || 0),
+            }))
+            .filter((item: IProdutoFilamento) => item.insumoId && item.gramas > 0);
+        if (rows.length) return rows;
+    }
+
+    const insumoId = String(body?.insumoId || current?.insumoId || '').trim();
+    const gramas = Number(body?.pesoGramas ?? current?.pesoGramas ?? 0);
+    return insumoId && gramas > 0 ? [{ insumoId, gramas }] : [];
+}
+
+function sumProdutoFilamentos(filamentos: IProdutoFilamento[]) {
+    return filamentos.reduce((total, item) => total + Number(item.gramas || 0), 0);
 }
 
 // Produtos antigos só têm `imageUrl` (campo único, pré-galeria) — lê como array de 1 imagem primária.
@@ -343,20 +369,23 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
         const guard = await checkTenantAccess(ctx, 'editor');
         if (guard) return guard;
         const { appKey, ...body } = ctx.body as any;
-        if (!appKey || !body.nome || !body.insumoId || body.pesoGramas == null) {
+        const filamentos = normalizeProdutoFilamentos(body);
+        if (!appKey || !body.nome || !filamentos.length) {
             ctx.set.status = 400;
-            return { success: false, error: 'Campos obrigatórios: appKey, nome, insumoId, pesoGramas' };
+            return { success: false, error: 'Campos obrigatórios: appKey, nome e ao menos um filamento com consumo em gramas' };
         }
         const uuid = crypto.randomUUID();
         const custoMaquinaHora = body.custoMaquinaHora != null
             ? Number(body.custoMaquinaHora)
             : await resolveCustoMaquinaHora(appKey, body.maquinaId);
+        const pesoGramas = sumProdutoFilamentos(filamentos);
         const prod: IProdutoFabril = {
             nome: body.nome,
             categoria: body.categoria || 'Geral',
-            pesoGramas: Number(body.pesoGramas),
+            pesoGramas,
             tempoHoras: Number(body.tempoHoras ?? 1),
-            insumoId: body.insumoId,
+            insumoId: filamentos[0].insumoId,
+            filamentos,
             embalagemId: body.embalagemId,
             acessoriosIds: body.acessoriosIds || [],
             maquinaId: body.maquinaId || undefined,
@@ -389,6 +418,12 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
         if (err) return err;
         const { appKey: _ak, ...body } = ctx.body as any;
         const current = item!.data as IProdutoFabril;
+        const filamentos = normalizeProdutoFilamentos(body, current);
+        if (body.filamentos !== undefined && !filamentos.length) {
+            ctx.set.status = 400;
+            return { success: false, error: 'Informe ao menos um filamento com consumo em gramas' };
+        }
+        const pesoGramas = filamentos.length ? sumProdutoFilamentos(filamentos) : current.pesoGramas;
         // Máquina trocada sem custoMaquinaHora explícito → recalcula a partir da nova máquina.
         const trocouMaquina = body.maquinaId !== undefined && body.maquinaId !== current.maquinaId;
         const custoMaquinaHora = body.custoMaquinaHora != null
@@ -399,7 +434,9 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
         const updated: IProdutoFabril = {
             ...current,
             ...body,
-            pesoGramas: body.pesoGramas != null ? Number(body.pesoGramas) : current.pesoGramas,
+            pesoGramas,
+            insumoId: filamentos[0]?.insumoId || current.insumoId,
+            filamentos: filamentos.length ? filamentos : current.filamentos,
             tempoHoras: body.tempoHoras != null ? Number(body.tempoHoras) : current.tempoHoras,
             custoMaquinaHora,
             margemAtacado: body.margemAtacado != null ? Number(body.margemAtacado) : current.margemAtacado,
@@ -436,14 +473,19 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
         const prod = item!.data as IProdutoFabril;
         const preco = await calcularPrecificacao(item!.appKey, prod);
 
-        // Desconta insumo do estoque
-        const consumoGramas = prod.pesoGramas * quantidade;
-        const insDoc = await mErp.findOne({ uuid: prod.insumoId, tipo: 'insumo' });
-        if (insDoc) {
+        // Desconta cada filamento/cor do estoque.
+        const filamentos = normalizeProdutoFilamentos({}, prod);
+        const consumoGramas = filamentos.reduce((total, item) => total + (item.gramas * quantidade), 0);
+        const consumoFilamentos: { insumoId: string; nome: string; gramas: number }[] = [];
+        for (const filamento of filamentos) {
+            const insDoc = await mErp.findOne({ uuid: filamento.insumoId, tipo: 'insumo' });
+            if (!insDoc) continue;
             const insData = insDoc.data as any;
-            const novoEst = insData.qtyEstoque - consumoGramas;
+            const consumoItem = filamento.gramas * quantidade;
+            consumoFilamentos.push({ insumoId: filamento.insumoId, nome: insData.nome, gramas: consumoItem });
+            const novoEst = insData.qtyEstoque - consumoItem;
             await mErp.findOneAndUpdate(
-                { uuid: prod.insumoId },
+                { uuid: filamento.insumoId },
                 { $set: { 'data.qtyEstoque': Math.max(0, novoEst) } }
             );
         }
@@ -465,7 +507,7 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
             data: {
                 tipo: 'ENTRADA',
                 subtipo: 'FABRICAÇÃO 3D',
-                descricao: `Produção: +${quantidade} un ${prod.nome} (consumo: -${consumoGramas}g)`,
+                descricao: `Produção: +${quantidade} un ${prod.nome} (consumo: -${consumoGramas}g em ${filamentos.length} cor(es))`,
                 valor: preco.custoTotal * quantidade,
                 quantidade,
                 referenciaId: ctx.params.uuid,
@@ -478,6 +520,7 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
             data: flat(saved),
             novoEstoque: novoEstAcab,
             consumoInsumoGramas: consumoGramas,
+            consumoFilamentos,
             custoProducao: preco.custoTotal * quantidade,
         };
     })
@@ -903,7 +946,12 @@ async function recalcProdutosVinculados(appKey: string, insumoUuid: string) {
     const produtos = await mErp.find({
         appKey,
         tipo: 'produto_fabril',
-        $or: [{ 'data.insumoId': insumoUuid }, { 'data.embalagemId': insumoUuid }, { 'data.acessoriosIds': insumoUuid }],
+        $or: [
+            { 'data.insumoId': insumoUuid },
+            { 'data.filamentos.insumoId': insumoUuid },
+            { 'data.embalagemId': insumoUuid },
+            { 'data.acessoriosIds': insumoUuid },
+        ],
     });
     for (const p of produtos) {
         const prod = p.data as IProdutoFabril;
