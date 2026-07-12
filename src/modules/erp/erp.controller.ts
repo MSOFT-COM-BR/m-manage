@@ -19,6 +19,16 @@ function normalizeMultipartFiles(value: unknown): File[] {
     });
 }
 
+function normalizeOptionalString(value: unknown): string | undefined {
+    const text = String(value ?? '').trim();
+    return text || undefined;
+}
+
+function normalizeColorHex(value: unknown): string | undefined {
+    const text = String(value ?? '').trim();
+    return /^#[0-9A-Fa-f]{6}$/.test(text) ? text.toUpperCase() : undefined;
+}
+
 // Produtos antigos só têm `imageUrl` (campo único, pré-galeria) — lê como array de 1 imagem primária.
 function currentImages(prod: IProdutoFabril): IProductImage[] {
     if (Array.isArray(prod.images)) return prod.images;
@@ -177,6 +187,8 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
             custoPorUnidade: Number(body.custoPorUnidade),
             estoqueMinimo: body.estoqueMinimo ?? 0,
             fornecedor: body.fornecedor,
+            corHex: normalizeColorHex(body.corHex),
+            corNome: normalizeOptionalString(body.corNome),
             observacoes: body.observacoes,
         };
         const item = await mErp.create({ uuid, appKey, tipo: 'insumo', data });
@@ -196,6 +208,8 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
             custoPorUnidade: body.custoPorUnidade != null ? Number(body.custoPorUnidade) : current.custoPorUnidade,
             qtyEstoque: body.qtyEstoque != null ? Number(body.qtyEstoque) : current.qtyEstoque,
             estoqueMinimo: body.estoqueMinimo != null ? Number(body.estoqueMinimo) : current.estoqueMinimo,
+            corHex: body.corHex !== undefined ? normalizeColorHex(body.corHex) : current.corHex,
+            corNome: body.corNome !== undefined ? normalizeOptionalString(body.corNome) : current.corNome,
         };
         const saved = await mErp.findOneAndUpdate(
             { uuid: ctx.params.uuid },

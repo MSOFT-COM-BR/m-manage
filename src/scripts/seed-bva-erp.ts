@@ -6,9 +6,9 @@ import { calcularPrecificacao } from '../services/erpPricing';
 const APP_KEY = 'bva';
 
 const insumos = [
-    { id: 'ins-1', nome: 'Filamento PLA Rosa Premium (1kg)', unidade: 'g', qtyEstoque: 3500, custoPorUnidade: 0.10, estoqueMinimo: 1000 },
-    { id: 'ins-2', nome: 'Filamento PLA Multicolor Seda (1kg)', unidade: 'g', qtyEstoque: 2200, custoPorUnidade: 0.14, estoqueMinimo: 1000 },
-    { id: 'ins-3', nome: 'Filamento PETG Roxo Alta Resistencia (1kg)', unidade: 'g', qtyEstoque: 1800, custoPorUnidade: 0.12, estoqueMinimo: 1000 },
+    { id: 'ins-1', nome: 'Filamento PLA Rosa Premium (1kg)', unidade: 'g', qtyEstoque: 3500, custoPorUnidade: 0.10, estoqueMinimo: 1000, corHex: '#EC4899', corNome: 'Rosa premium' },
+    { id: 'ins-2', nome: 'Filamento PLA Multicolor Seda (1kg)', unidade: 'g', qtyEstoque: 2200, custoPorUnidade: 0.14, estoqueMinimo: 1000, corHex: '#F59E0B', corNome: 'Multicolor seda' },
+    { id: 'ins-3', nome: 'Filamento PETG Roxo Alta Resistencia (1kg)', unidade: 'g', qtyEstoque: 1800, custoPorUnidade: 0.12, estoqueMinimo: 1000, corHex: '#7C3AED', corNome: 'Roxo' },
     { id: 'ins-4', nome: 'Embalagem Presenteavel Ludica Studio BVA', unidade: 'un', qtyEstoque: 120, custoPorUnidade: 1.50, estoqueMinimo: 30 },
     { id: 'ins-5', nome: 'Argola de Chaveiro Premium com Girador', unidade: 'un', qtyEstoque: 300, custoPorUnidade: 0.45, estoqueMinimo: 50 },
 ] satisfies Array<IInsumo & { id: string }>;

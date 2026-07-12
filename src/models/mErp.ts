@@ -9,6 +9,8 @@ export interface IInsumo {
     custoPorUnidade: number;      // R$ por unidade (grama, peça, ml, metro)
     estoqueMinimo: number;        // alerta de reposição
     fornecedor?: string;
+    corHex?: string;              // identificação visual do filamento/insumo
+    corNome?: string;             // nome amigável da cor (ex: Azul seda)
     imageUrl?: string;
     observacoes?: string;
 }
