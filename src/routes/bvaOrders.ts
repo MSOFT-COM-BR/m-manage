@@ -123,6 +123,12 @@ export const bvaOrderRoutes = new Elysia({ prefix: '/bva/orders' })
         const limit = Math.min(200, Math.max(1, Number(query.limit || 100)));
         const filter: Record<string, any> = { appKey };
         if (status) filter.status = status;
+        if (query.resellerId) filter['reseller.id'] = query.resellerId;
+        if (query.since || query.until) {
+            filter.createdAt = {};
+            if (query.since) filter.createdAt.$gte = new Date(query.since);
+            if (query.until) filter.createdAt.$lte = new Date(query.until);
+        }
 
         const orders = await mBvaOrder.find(filter).sort({ createdAt: -1 }).limit(limit);
         return { success: true, data: orders.map(serializeOrder), total: orders.length };

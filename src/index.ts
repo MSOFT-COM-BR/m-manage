@@ -20,6 +20,7 @@ import { consultorasRoutes } from './routes/consultoras';
 import { bvaOrderRoutes } from './routes/bvaOrders';
 import { bvaProspectRoutes } from './routes/bvaProspects';
 import { bvaCategoriaRoutes } from './routes/bvaCategorias';
+import { bvaCatalogAccessRoutes } from './routes/bvaCatalogAccess';
 
 // 1. Inicializa Conexão com Banco
 await connectMongo();
@@ -115,7 +116,8 @@ const app = new Elysia()
     .use(consultorasRoutes)
     .use(bvaOrderRoutes)
     .use(bvaProspectRoutes)
-    .use(bvaCategoriaRoutes);
+    .use(bvaCategoriaRoutes)
+    .use(bvaCatalogAccessRoutes);
 
 const listenPort = Number(process.env.PORT);
 app.listen(Number.isFinite(listenPort) && listenPort > 0 ? listenPort : 3000);
