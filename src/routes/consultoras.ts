@@ -7,6 +7,13 @@ function isAdmin(jwt: any) {
     return jwt?.roles?.includes('admin');
 }
 
+function generateStrongPassword(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+    let pass = '';
+    for (let i = 0; i < 12; i++) pass += chars[Math.floor(Math.random() * chars.length)];
+    return pass;
+}
+
 function serializeConsultora(user: any, access: any) {
     return {
         id:         String(user._id),
@@ -83,7 +90,8 @@ export const consultorasRoutes = new Elysia({ prefix: '/bva/consultoras' })
         if (!nome || !email) { ctx.set.status = 400; return { success: false, error: 'nome e email são obrigatórios' }; }
         const normalizedStatus = status === 'inactive' ? 'inactive' : 'active';
 
-        const password = senha ? await Bun.password.hash(senha, { algorithm: 'argon2id' }) : await Bun.password.hash('bva@2025', { algorithm: 'argon2id' });
+        const senhaFinal = senha || 'bva@2025';
+        const password = await Bun.password.hash(senhaFinal, { algorithm: 'argon2id' });
 
         let user = await mAuth.findOne({ email });
         if (user) { ctx.set.status = 409; return { success: false, error: 'Email já cadastrado' }; }
@@ -108,7 +116,30 @@ export const consultorasRoutes = new Elysia({ prefix: '/bva/consultoras' })
             grantedBy: jwt.sub,
         }).catch(() => {});
 
-        return { success: true, data: serializeConsultora(user, { role: appRole }) };
+        return { success: true, data: serializeConsultora(user, { role: appRole }), senhaGerada: senha ? null : senhaFinal };
+    })
+
+    // PATCH /bva/consultoras/:id/reset-password — gera ou define nova senha (admin)
+    .patch('/:id/reset-password', async (ctx: any) => {
+        const jwt = requireAuth(ctx);
+        if (!jwt || !isAdmin(jwt)) { ctx.set.status = 403; return { success: false, error: 'Apenas admins' }; }
+
+        const { senha } = (ctx.body as any) || {};
+        const novaSenha = senha || generateStrongPassword();
+        const password = await Bun.password.hash(novaSenha, { algorithm: 'argon2id' });
+
+        const user = await mAuth.findByIdAndUpdate(
+            ctx.params.id,
+            {
+                $set: { password },
+                $inc: { tokenVersion: 1 },
+                $unset: { refreshToken: 1 },
+            },
+            { new: true }
+        );
+        if (!user) { ctx.set.status = 404; return { success: false, error: 'Consultora não encontrada' }; }
+
+        return { success: true, message: 'Senha redefinida', senha: novaSenha };
     })
 
     // PUT /bva/consultoras/:id — atualiza dados de uma consultora (admin)
