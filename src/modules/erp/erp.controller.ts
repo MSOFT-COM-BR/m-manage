@@ -892,10 +892,21 @@ const kardexRoutes = new Elysia({ prefix: '/kardex' })
         const { appKey } = ctx.query as Record<string, string>;
         const items = await mErp.find({ appKey, tipo: 'kardex' });
         let entradas = 0, saidas = 0;
+        let receitaVendas = 0, custoFabricacao = 0, compraInsumos = 0, ajustesEstoque = 0;
         for (const i of items) {
             const d = i.data as IKardex;
             if (d.tipo === 'ENTRADA') entradas += d.valor;
             else if (d.tipo === 'SAIDA') saidas += d.valor;
+
+            if (d.tipo === 'SAIDA' && (d.subtipo === 'VENDA VAREJO' || d.subtipo === 'VENDA ATACADO')) {
+                receitaVendas += d.valor;
+            } else if (d.tipo === 'ENTRADA' && d.subtipo === 'FABRICAÇÃO 3D') {
+                custoFabricacao += d.valor;
+            } else if (d.tipo === 'ENTRADA' && d.subtipo === 'COMPRA INSUMO') {
+                compraInsumos += d.valor;
+            } else if (d.subtipo === 'AJUSTE ESTOQUE') {
+                ajustesEstoque += d.valor;
+            }
         }
         return {
             success: true,
@@ -904,6 +915,10 @@ const kardexRoutes = new Elysia({ prefix: '/kardex' })
                 saidas: round2(saidas),
                 saldo: round2(entradas - saidas),
                 totalMovimentacoes: items.length,
+                receitaVendas: round2(receitaVendas),
+                custoFabricacao: round2(custoFabricacao),
+                compraInsumos: round2(compraInsumos),
+                ajustesEstoque: round2(ajustesEstoque),
             },
         };
     })
