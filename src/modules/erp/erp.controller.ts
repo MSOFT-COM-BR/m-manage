@@ -208,6 +208,7 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
         const uuid = crypto.randomUUID();
         const data: IInsumo = {
             nome: body.nome,
+            categoria: body.categoria || 'filamento',
             unidade: body.unidade,
             qtyEstoque: body.qtyEstoque ?? 0,
             custoPorUnidade: Number(body.custoPorUnidade),

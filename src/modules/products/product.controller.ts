@@ -1,9 +1,41 @@
 import { Elysia } from 'elysia';
 import { mProduct } from '../../models/mProduct';
 import { mErp } from '../../models/mErp';
-import type { IProdutoFabril } from '../../models/mErp';
+import type { IProdutoFabril, IInsumo, IProdutoFilamento } from '../../models/mErp';
 import { checkTenantAccess } from '../../middleware/tenantPlugin';
 import { calcularPrecificacao } from '../../services/erpPricing';
+
+function getProdutoFilamentosPublic(prod: IProdutoFabril): IProdutoFilamento[] {
+    if (Array.isArray(prod.filamentos) && prod.filamentos.length) {
+        return prod.filamentos
+            .map(item => ({ insumoId: item.insumoId, gramas: Number(item.gramas || 0) }))
+            .filter(item => item.insumoId && item.gramas > 0);
+    }
+    return prod.insumoId && prod.pesoGramas > 0
+        ? [{ insumoId: prod.insumoId, gramas: Number(prod.pesoGramas) }]
+        : [];
+}
+
+async function resolveCoresDisponiveis(appKey: string, data: IProdutoFabril) {
+    const filamentos = getProdutoFilamentosPublic(data);
+    if (!filamentos.length) return [];
+
+    const insumoIds = filamentos.map(f => f.insumoId);
+    const insumos = await mErp.find({ uuid: { $in: insumoIds }, appKey, tipo: 'insumo', deletedAt: null });
+
+    return filamentos.map(f => {
+        const ins = insumos.find(i => i.uuid === f.insumoId);
+        const insData = ins?.data as IInsumo | undefined;
+        return {
+            insumoId: f.insumoId,
+            nome: insData?.nome ?? 'Filamento',
+            corHex: insData?.corHex ?? null,
+            corNome: insData?.corNome ?? null,
+            gramas: f.gramas,
+            disponivel: !!insData && (insData.qtyEstoque ?? 0) >= f.gramas,
+        };
+    });
+}
 
 function toSlug(name: string): string {
     return name
@@ -35,6 +67,13 @@ async function erpProductToPublicProduct(item: any) {
         custoTotal = precificacao.custoTotal;
     } catch (error) {
         console.error('[products:erpProductToPublicProduct]', error);
+    }
+
+    let cores: Awaited<ReturnType<typeof resolveCoresDisponiveis>> = [];
+    try {
+        cores = await resolveCoresDisponiveis(item.appKey, data);
+    } catch (error) {
+        console.error('[products:resolveCoresDisponiveis]', error);
     }
 
     return {
@@ -73,6 +112,7 @@ async function erpProductToPublicProduct(item: any) {
             precoAtacado,
             precoVarejo,
             categoria: data.categoria,
+            cores,
         },
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,

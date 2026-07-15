@@ -2,8 +2,11 @@ import mongoose, { Document, Schema } from 'mongoose';
 import type { IProductImage } from './mProduct';
 
 // ── Insumo (filamentos, embalagens, acessórios) ───────────────────────────────
+export type InsumoCategoria = 'filamento' | 'embalagem' | 'papelaria' | 'tinta' | 'acessorio' | 'outro';
+
 export interface IInsumo {
     nome: string;
+    categoria?: InsumoCategoria;  // tipo de insumo — default 'filamento' para dados legados
     unidade: 'g' | 'un' | 'ml' | 'm';
     qtyEstoque: number;           // estoque atual na unidade
     custoPorUnidade: number;      // R$ por unidade (grama, peça, ml, metro)
