@@ -189,6 +189,27 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
         return { success: true, count: data.length, data };
     })
 
+    // GET /erp/insumos/paleta/publico?appKey=&categoria= — pública, sem auth (paleta de cores para clientes)
+    .get('/paleta/publico', async (ctx: any) => {
+        const { appKey, categoria } = ctx.query as Record<string, string>;
+        if (!appKey) { ctx.set.status = 400; return { success: false, error: 'appKey é obrigatório' }; }
+        const filter: any = { appKey, tipo: 'insumo', deletedAt: null };
+        const items = await mErp.find(filter).sort({ 'data.categoria': 1, 'data.nome': 1 });
+        let data = items.map(i => {
+            const d = i.data as IInsumo;
+            return {
+                uuid: i.uuid,
+                nome: d.nome,
+                categoria: d.categoria || 'filamento',
+                corHex: d.corHex || null,
+                corNome: d.corNome || null,
+                disponivel: (d.qtyEstoque ?? 0) > (d.estoqueMinimo ?? 0),
+            };
+        });
+        if (categoria) data = data.filter(i => i.categoria === categoria);
+        return { success: true, count: data.length, data };
+    })
+
     // GET /erp/insumos/:uuid — viewer+
     .get('/:uuid', async (ctx: any) => {
         const { item, err } = await findItem(ctx.params.uuid, 'insumo', ctx, 'viewer');
