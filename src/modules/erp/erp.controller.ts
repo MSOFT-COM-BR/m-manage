@@ -783,10 +783,12 @@ const configRoutes = new Elysia({ prefix: '/config' })
         if (guard) return guard;
         const { appKey, ...body } = ctx.body as any;
         if (!appKey) { ctx.set.status = 400; return { success: false, error: 'appKey é obrigatório' }; }
+        const current = await getErpConfig(appKey);
         const data: IErpConfig = {
             custoEnergiaKwh: Number(body.custoEnergiaKwh ?? 0),
             whatsappPrincipal: body.whatsappPrincipal ? String(body.whatsappPrincipal).replace(/\D/g, '') : undefined,
             redesSociais: parseRedesSociais(body.redesSociais),
+            logoUrl: current.logoUrl,
         };
         const saved = await mErp.findOneAndUpdate(
             { uuid: configUuid(appKey), tipo: 'config' },
@@ -798,7 +800,7 @@ const configRoutes = new Elysia({ prefix: '/config' })
     });
 
 // GET /erp/config/public?appKey= — SEM autenticação (a loja pública/index.html não tem login).
-// Expõe apenas o whatsappPrincipal — nunca custoEnergiaKwh nem outros dados internos do ERP.
+// Expõe apenas whatsappPrincipal/redesSociais/logoUrl — nunca custoEnergiaKwh nem outros dados internos do ERP.
 const configPublicRoutes = new Elysia({ prefix: '/config' })
     .get('/public', async (ctx: any) => {
         const { appKey } = ctx.query as Record<string, string>;
@@ -809,8 +811,53 @@ const configPublicRoutes = new Elysia({ prefix: '/config' })
             data: {
                 whatsappPrincipal: cfg.whatsappPrincipal || null,
                 redesSociais: cfg.redesSociais || {},
+                logoUrl: cfg.logoUrl || null,
             },
         };
+    });
+
+// POST/DELETE /erp/config/logo — editor+ (upload/remoção da logo customizada da loja)
+const configLogoRoutes = new Elysia({ prefix: '/config' })
+    .post('/logo', async (ctx: any) => {
+        const guard = await checkTenantAccess(ctx, 'editor');
+        if (guard) return guard;
+        const { appKey } = ctx.query as Record<string, string>;
+        if (!appKey) { ctx.set.status = 400; return { success: false, error: 'appKey é obrigatório' }; }
+        const file: File | undefined = ctx.body?.image;
+        if (!file || typeof file === 'string') {
+            ctx.set.status = 400;
+            return { success: false, error: 'Campo "image" obrigatório (multipart/form-data)' };
+        }
+        try {
+            const cfg = await getErpConfig(appKey);
+            if (cfg.logoUrl?.startsWith('/uploads/')) try { await deleteUpload(cfg.logoUrl); } catch {}
+            const result = await saveUpload(file, `erp/${appKey}`);
+            const data: IErpConfig = { ...cfg, logoUrl: result.url };
+            await mErp.findOneAndUpdate(
+                { uuid: configUuid(appKey), tipo: 'config' },
+                { $set: { uuid: configUuid(appKey), appKey, tipo: 'config', data, deletedAt: null } },
+                { upsert: true }
+            );
+            return { success: true, logoUrl: result.url };
+        } catch (e: any) {
+            ctx.set.status = 400;
+            return { success: false, error: e.message };
+        }
+    })
+    .delete('/logo', async (ctx: any) => {
+        const guard = await checkTenantAccess(ctx, 'editor');
+        if (guard) return guard;
+        const { appKey } = ctx.query as Record<string, string>;
+        if (!appKey) { ctx.set.status = 400; return { success: false, error: 'appKey é obrigatório' }; }
+        const cfg = await getErpConfig(appKey);
+        if (cfg.logoUrl?.startsWith('/uploads/')) try { await deleteUpload(cfg.logoUrl); } catch {}
+        const data: IErpConfig = { ...cfg, logoUrl: undefined };
+        await mErp.findOneAndUpdate(
+            { uuid: configUuid(appKey), tipo: 'config' },
+            { $set: { uuid: configUuid(appKey), appKey, tipo: 'config', data, deletedAt: null } },
+            { upsert: true }
+        );
+        return { success: true };
     });
 
 // ── MÁQUINAS (impressoras 3D) ───────────────────────────────────────────────────
@@ -1034,6 +1081,7 @@ export const erpRoutes = new Elysia({ prefix: '/erp' })
     .use(insumoRoutes)
     .use(produtoRoutes)
     .use(configPublicRoutes)
+    .use(configLogoRoutes)
     .use(configRoutes)
     .use(maquinaRoutes)
     .use(kardexRoutes);

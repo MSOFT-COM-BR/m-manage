@@ -92,6 +92,7 @@ export interface IErpConfig {
     custoEnergiaKwh: number;        // R$ por kWh — tarifa única da concessionária, compartilhada por todas as máquinas
     whatsappPrincipal?: string;     // número (DDI+DDD+número, só dígitos) que recebe os pedidos por padrão na vitrine
     redesSociais?: IErpConfigRedesSociais;
+    logoUrl?: string;               // logo customizada da loja, exibida na vitrine/portal (substitui o padrão do código)
 }
 
 // ── Kardex (ledger imutável de movimentações) ─────────────────────────────────
