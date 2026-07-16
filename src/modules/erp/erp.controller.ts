@@ -210,14 +210,18 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
             const d = i.data as IInsumo;
             const disponivel = (d.qtyEstoque ?? 0) > (d.estoqueMinimo ?? 0);
             if (Array.isArray(d.coresMultiplas) && d.coresMultiplas.length) {
-                return d.coresMultiplas.map((cor, idx) => ({
-                    uuid: `${i.uuid}#${idx}`,
+                const hexes = d.coresMultiplas.map(c => c?.corHex).filter(Boolean);
+                const nomes = d.coresMultiplas.map(c => c?.corNome || c?.corHex).filter(Boolean);
+                return [{
+                    uuid: i.uuid,
                     nome: d.nome,
                     categoria: d.categoria || 'filamento',
-                    corHex: cor.corHex,
-                    corNome: cor.corNome || null,
+                    corHex: hexes[0] || d.corHex || '#CCCCCC',
+                    corNome: d.corNome || (nomes.length ? nomes.join(' + ') : null) || d.nome,
+                    coresMultiplas: d.coresMultiplas,
+                    isMulticolor: hexes.length > 1 || d.coresMultiplas.length > 1,
                     disponivel,
-                }));
+                }];
             }
             return [{
                 uuid: i.uuid,
@@ -225,6 +229,8 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
                 categoria: d.categoria || 'filamento',
                 corHex: d.corHex || null,
                 corNome: d.corNome || null,
+                coresMultiplas: null,
+                isMulticolor: false,
                 disponivel,
             }];
         });
@@ -232,7 +238,10 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
 
         const uniqueMap = new Map<string, any>();
         data.forEach(item => {
-            const key = (item.corNome || item.corHex || item.nome || '').toLowerCase().trim();
+            const isMulti = item.isMulticolor || (Array.isArray(item.coresMultiplas) && item.coresMultiplas.length > 1);
+            const key = isMulti
+                ? 'multi_' + (item.corNome || item.nome || (item.coresMultiplas || []).map((c: any) => typeof c === 'string' ? c : c.corHex).join('_')).toLowerCase().trim()
+                : (item.corNome || item.corHex || item.nome || '').toLowerCase().trim();
             if (!key) return;
             const existing = uniqueMap.get(key);
             if (!existing || (!existing.disponivel && item.disponivel)) {

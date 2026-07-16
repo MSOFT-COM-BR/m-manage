@@ -1,6 +1,6 @@
 {
   "name": "bun-mongodb-api",
-  "version": "0.10.43",
+  "version": "0.10.44",
   "description": "API REST robusta com Bun + MongoDB + ElysiaJS",
   "type": "module",
   "scripts": {
