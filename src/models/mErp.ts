@@ -4,6 +4,11 @@ import type { IProductImage } from './mProduct';
 // ── Insumo (filamentos, embalagens, acessórios) ───────────────────────────────
 export type InsumoCategoria = 'filamento' | 'embalagem' | 'papelaria' | 'tinta' | 'acessorio' | 'outro';
 
+export interface IInsumoCor {
+    corHex: string;
+    corNome?: string;
+}
+
 export interface IInsumo {
     nome: string;
     categoria?: InsumoCategoria;  // tipo de insumo — default 'filamento' para dados legados
@@ -12,8 +17,9 @@ export interface IInsumo {
     custoPorUnidade: number;      // R$ por unidade (grama, peça, ml, metro)
     estoqueMinimo: number;        // alerta de reposição
     fornecedor?: string;
-    corHex?: string;              // identificação visual do filamento/insumo
+    corHex?: string;              // identificação visual do filamento/insumo (cor única — compatibilidade)
     corNome?: string;             // nome amigável da cor (ex: Azul seda)
+    coresMultiplas?: IInsumoCor[]; // filamento "arco-íris"/multicolor: várias cores aleatórias no mesmo rolo
     imageUrl?: string;
     observacoes?: string;
 }

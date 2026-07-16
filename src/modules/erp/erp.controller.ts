@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia';
 import { mErp } from '../../models/mErp';
-import type { IInsumo, IProdutoAttachment, IProdutoFabril, IProdutoFilamento, IProdutoVideo, IKardex, IErpConfig, IErpConfigRedesSociais, IMaquina, ErpTipo } from '../../models/mErp';
+import type { IInsumo, IInsumoCor, IProdutoAttachment, IProdutoFabril, IProdutoFilamento, IProdutoVideo, IKardex, IErpConfig, IErpConfigRedesSociais, IMaquina, ErpTipo } from '../../models/mErp';
 import type { IProductImage } from '../../models/mProduct';
 import { checkTenantAccess } from '../../middleware/tenantPlugin';
 import { saveAnyUpload, saveUpload, deleteUpload } from '../../services/uploadService';
@@ -27,6 +27,17 @@ function normalizeOptionalString(value: unknown): string | undefined {
 function normalizeColorHex(value: unknown): string | undefined {
     const text = String(value ?? '').trim();
     return /^#[0-9A-Fa-f]{6}$/.test(text) ? text.toUpperCase() : undefined;
+}
+
+function normalizeCoresMultiplas(value: unknown): IInsumoCor[] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const cores = value
+        .map((item: any) => ({
+            corHex: normalizeColorHex(item?.corHex),
+            corNome: normalizeOptionalString(item?.corNome),
+        }))
+        .filter((item): item is IInsumoCor => !!item.corHex);
+    return cores.length ? cores : undefined;
 }
 
 function normalizeProdutoFilamentos(body: any, current?: IProdutoFabril): IProdutoFilamento[] {
@@ -195,16 +206,27 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
         if (!appKey) { ctx.set.status = 400; return { success: false, error: 'appKey é obrigatório' }; }
         const filter: any = { appKey, tipo: 'insumo', deletedAt: null };
         const items = await mErp.find(filter).sort({ 'data.categoria': 1, 'data.nome': 1 });
-        let data = items.map(i => {
+        let data = items.flatMap(i => {
             const d = i.data as IInsumo;
-            return {
+            const disponivel = (d.qtyEstoque ?? 0) > (d.estoqueMinimo ?? 0);
+            if (Array.isArray(d.coresMultiplas) && d.coresMultiplas.length) {
+                return d.coresMultiplas.map((cor, idx) => ({
+                    uuid: `${i.uuid}#${idx}`,
+                    nome: d.nome,
+                    categoria: d.categoria || 'filamento',
+                    corHex: cor.corHex,
+                    corNome: cor.corNome || null,
+                    disponivel,
+                }));
+            }
+            return [{
                 uuid: i.uuid,
                 nome: d.nome,
                 categoria: d.categoria || 'filamento',
                 corHex: d.corHex || null,
                 corNome: d.corNome || null,
-                disponivel: (d.qtyEstoque ?? 0) > (d.estoqueMinimo ?? 0),
-            };
+                disponivel,
+            }];
         });
         if (categoria) data = data.filter(i => i.categoria === categoria);
         return { success: true, count: data.length, data };
@@ -237,6 +259,7 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
             fornecedor: body.fornecedor,
             corHex: normalizeColorHex(body.corHex),
             corNome: normalizeOptionalString(body.corNome),
+            coresMultiplas: normalizeCoresMultiplas(body.coresMultiplas),
             observacoes: body.observacoes,
         };
         const item = await mErp.create({ uuid, appKey, tipo: 'insumo', data });
@@ -258,6 +281,7 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
             estoqueMinimo: body.estoqueMinimo != null ? Number(body.estoqueMinimo) : current.estoqueMinimo,
             corHex: body.corHex !== undefined ? normalizeColorHex(body.corHex) : current.corHex,
             corNome: body.corNome !== undefined ? normalizeOptionalString(body.corNome) : current.corNome,
+            coresMultiplas: body.coresMultiplas !== undefined ? normalizeCoresMultiplas(body.coresMultiplas) : current.coresMultiplas,
         };
         const saved = await mErp.findOneAndUpdate(
             { uuid: ctx.params.uuid },
