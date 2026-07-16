@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia';
+import { randomInt } from 'node:crypto';
 import { mAuth } from '../models/mAuth';
 import { requireAuth } from '../middleware/requireAuth';
 import { mAppAccess } from '../models/mAppAccess';
@@ -10,7 +11,7 @@ function isAdmin(jwt: any) {
 function generateStrongPassword(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
     let pass = '';
-    for (let i = 0; i < 12; i++) pass += chars[Math.floor(Math.random() * chars.length)];
+    for (let i = 0; i < 12; i++) pass += chars[randomInt(chars.length)];
     return pass;
 }
 
@@ -90,7 +91,12 @@ export const consultorasRoutes = new Elysia({ prefix: '/bva/consultoras' })
         if (!nome || !email) { ctx.set.status = 400; return { success: false, error: 'nome e email são obrigatórios' }; }
         const normalizedStatus = status === 'inactive' ? 'inactive' : 'active';
 
-        const senhaFinal = senha || 'bva@2025';
+        const senhaInformada = typeof senha === 'string' ? senha.trim() : '';
+        if (senhaInformada && senhaInformada.length < 8) {
+            ctx.set.status = 400;
+            return { success: false, error: 'A senha deve ter pelo menos 8 caracteres' };
+        }
+        const senhaFinal = senhaInformada || generateStrongPassword();
         const password = await Bun.password.hash(senhaFinal, { algorithm: 'argon2id' });
 
         let user = await mAuth.findOne({ email });
@@ -116,7 +122,7 @@ export const consultorasRoutes = new Elysia({ prefix: '/bva/consultoras' })
             grantedBy: jwt.sub,
         }).catch(() => {});
 
-        return { success: true, data: serializeConsultora(user, { role: appRole }), senhaGerada: senha ? null : senhaFinal };
+        return { success: true, data: serializeConsultora(user, { role: appRole }), senhaGerada: senhaInformada ? null : senhaFinal };
     })
 
     // PATCH /bva/consultoras/:id/reset-password — gera ou define nova senha (admin)
@@ -125,7 +131,12 @@ export const consultorasRoutes = new Elysia({ prefix: '/bva/consultoras' })
         if (!jwt || !isAdmin(jwt)) { ctx.set.status = 403; return { success: false, error: 'Apenas admins' }; }
 
         const { senha } = (ctx.body as any) || {};
-        const novaSenha = senha || generateStrongPassword();
+        const senhaInformada = typeof senha === 'string' ? senha.trim() : '';
+        if (senhaInformada && senhaInformada.length < 8) {
+            ctx.set.status = 400;
+            return { success: false, error: 'A senha deve ter pelo menos 8 caracteres' };
+        }
+        const novaSenha = senhaInformada || generateStrongPassword();
         const password = await Bun.password.hash(novaSenha, { algorithm: 'argon2id' });
 
         const user = await mAuth.findByIdAndUpdate(
