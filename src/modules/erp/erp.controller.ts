@@ -24,6 +24,12 @@ function normalizeOptionalString(value: unknown): string | undefined {
     return text || undefined;
 }
 
+function normalizeOptionalNumber(value: unknown): number | undefined {
+    if (value === undefined || value === null || value === '') return undefined;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : undefined;
+}
+
 function normalizeColorHex(value: unknown): string | undefined {
     const text = String(value ?? '').trim();
     return /^#[0-9A-Fa-f]{6}$/.test(text) ? text.toUpperCase() : undefined;
@@ -1054,6 +1060,11 @@ const kardexRoutes = new Elysia({ prefix: '/kardex' })
             valor: Number(body.valor),
             quantidade: body.quantidade ? Number(body.quantidade) : undefined,
             referenciaId: body.referenciaId,
+            valorUnitario: normalizeOptionalNumber(body.valorUnitario),
+            valorSugerido: normalizeOptionalNumber(body.valorSugerido),
+            prazoRecebimentoDias: normalizeOptionalNumber(body.prazoRecebimentoDias),
+            dataRecebimento: normalizeOptionalString(body.dataRecebimento),
+            condicaoPagamento: normalizeOptionalString(body.condicaoPagamento),
             operadorEmail: ctx.user?.email,
         };
         const item = await mErp.create({ uuid, appKey, tipo: 'kardex', data });

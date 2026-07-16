@@ -119,6 +119,11 @@ export interface IKardex {
     valor: number;                // valor financeiro do movimento
     quantidade?: number;          // unidades movimentadas
     referenciaId?: string;        // uuid do produto ou insumo relacionado
+    valorUnitario?: number;       // valor real por unidade quando aplicável
+    valorSugerido?: number;       // valor calculado pela tabela no momento do lançamento
+    prazoRecebimentoDias?: number;
+    dataRecebimento?: string;     // YYYY-MM-DD previsto para o pagamento cair
+    condicaoPagamento?: string;
     operadorEmail?: string;       // quem registrou
 }
 
