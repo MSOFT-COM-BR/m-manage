@@ -229,7 +229,19 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
             }];
         });
         if (categoria) data = data.filter(i => i.categoria === categoria);
-        return { success: true, count: data.length, data };
+
+        const uniqueMap = new Map<string, any>();
+        data.forEach(item => {
+            const key = (item.corNome || item.corHex || item.nome || '').toLowerCase().trim();
+            if (!key) return;
+            const existing = uniqueMap.get(key);
+            if (!existing || (!existing.disponivel && item.disponivel)) {
+                uniqueMap.set(key, item);
+            }
+        });
+        const deduplicated = Array.from(uniqueMap.values()).sort((a, b) => (a.corNome || a.nome || '').localeCompare(b.corNome || b.nome || ''));
+
+        return { success: true, count: deduplicated.length, data: deduplicated };
     })
 
     // GET /erp/insumos/:uuid — viewer+
