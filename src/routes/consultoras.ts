@@ -42,18 +42,13 @@ export const consultorasRoutes = new Elysia({ prefix: '/bva/consultoras' })
         const userIds = accesses.map(a => a.userId);
         const users = await mAuth.find({ _id: { $in: userIds }, status: 'active' }).lean();
 
-        const data = users.map(u => {
-            const acc = accesses.find(a => a.userId.toString() === u._id.toString());
-            return {
-                id: String(u._id),
-                name: u.name,
-                store: u.nivel ? `${u.name} Studio BVA ${u.nivel}` : `${u.name} Studio BVA`,
-                whatsapp: u.whatsapp ?? '',
-                email: u.email,
-                instagram: u.instagram ?? '',
-                role: acc?.role ?? 'viewer',
-            };
-        });
+        const data = users.map(u => ({
+            id: String(u._id),
+            name: u.name,
+            store: u.nivel ? `${u.name} Studio BVA ${u.nivel}` : `${u.name} Studio BVA`,
+            whatsapp: u.whatsapp ?? '',
+            instagram: u.instagram ?? '',
+        }));
 
         return { success: true, data, total: data.length };
     })
