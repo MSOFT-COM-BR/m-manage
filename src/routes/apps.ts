@@ -1,32 +1,44 @@
 import { Elysia, t } from 'elysia';
 import { mApps } from '../models/mApps';
 import { mAppAccess } from '../models/mAppAccess';
+import { requireAuth } from '../middleware/requireAuth';
 import { verifyAccessToken } from '../config/jwt';
 import mongoose from 'mongoose';
 
 export const appRoutes = new Elysia({ prefix: '/apps' })
 
-    // List all apps installed by a user
-    .get('/', async ({ query, set }) => {
+    // Lista apps instalados do usuário autenticado.
+    // Admin pode consultar qualquer usuário via ?userId=, ou o catálogo inteiro via ?all=1;
+    // demais usuários sempre veem apenas os próprios apps, independente do que enviarem na query.
+    .get('/', async (ctx: any) => {
+        const jwt = requireAuth(ctx);
+        if (!jwt) return { success: false, error: 'Não autorizado' };
+
         try {
-            const userId = query.userId;
-            if (!userId) {
-                set.status = 400;
-                return { success: false, error: 'User ID required' };
+            const isAdmin = jwt.roles?.includes('admin');
+
+            if (isAdmin && ctx.query.all) {
+                const apps = await mApps.find({});
+                return { success: true, data: apps };
             }
 
-            const apps = await mApps.find({ userId: new mongoose.Types.ObjectId(userId as string) });
+            const targetUserId = isAdmin && ctx.query.userId ? ctx.query.userId : jwt.sub;
+            const apps = await mApps.find({ userId: new mongoose.Types.ObjectId(targetUserId) });
             return { success: true, data: apps };
         } catch (error) {
-            set.status = 500;
+            ctx.set.status = 500;
             return { success: false, error: error.message };
         }
     })
 
-    // Register/Install an app
-    .post('/install', async ({ body, set }) => {
+    // Register/Install an app para o usuário autenticado
+    .post('/install', async (ctx: any) => {
+        const jwt = requireAuth(ctx);
+        if (!jwt) return { success: false, error: 'Não autorizado' };
+
         try {
-            const { name, appKey, userId } = body as { name: string; appKey: string; userId: string };
+            const { name, appKey } = ctx.body as { name: string; appKey: string };
+            const userId = jwt.sub;
 
             // Check if already installed
             const existing = await mApps.findOne({ userId: new mongoose.Types.ObjectId(userId), appKey });
@@ -45,15 +57,14 @@ export const appRoutes = new Elysia({ prefix: '/apps' })
 
             return { success: true, data: newApp, message: 'App installed successfully' };
         } catch (error) {
-            set.status = 500;
+            ctx.set.status = 500;
             console.error(error);
             return { success: false, error: error.message };
         }
     }, {
         body: t.Object({
             name: t.String(),
-            appKey: t.String(),
-            userId: t.String()
+            appKey: t.String()
         })
     })
 
