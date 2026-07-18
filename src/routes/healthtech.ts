@@ -7,6 +7,7 @@ import { EducationContent } from '../models/healthtech/EducationContent';
 import { LoyaltyProgram, LoyaltyReward } from '../models/healthtech/LoyaltyProgram';
 import { FollowUp, FollowUpRule } from '../models/healthtech/FollowUp';
 import { AuditLog, createAuditLog } from '../models/healthtech/AuditLog';
+import { requireAuth } from '../middleware/requireAuth';
 
 /**
  * HealthTech Routes
@@ -22,6 +23,10 @@ import { AuditLog, createAuditLog } from '../models/healthtech/AuditLog';
  * 7. Analytics
  */
 export const healthtechRoutes = new Elysia({ prefix: '/healthtech' })
+    // Dados de pacientes/prontuário: exige sessão válida.
+    // TODO: isolar por pharmacyId/tenant via requireAppAccess quando o appKey do healthtech
+    // for registrado em mAppAccess — hoje só bloqueia acesso totalmente anônimo.
+    .onBeforeHandle((ctx: any) => requireAuth(ctx) ? undefined : { success: false, error: 'Não autorizado' })
 
     // ============================================
     // PHARMACY MANAGEMENT (Module 1 - White Label)

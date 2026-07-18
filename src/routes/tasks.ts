@@ -1,7 +1,11 @@
 import { Elysia } from 'elysia';
 import { mTask } from '../models/mTask';
+import { requireAuth } from '../middleware/requireAuth';
 
 export const taskRoutes = new Elysia({ prefix: '/tasks' })
+    // Módulo interno/administrativo: exige sessão válida em todas as rotas
+    .onBeforeHandle((ctx: any) => requireAuth(ctx) ? undefined : { success: false, error: 'Não autorizado' })
+
     /**
      * GET /tasks - Lista todos os registros
      */

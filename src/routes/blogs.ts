@@ -1,6 +1,7 @@
 import { Elysia } from 'elysia';
 import { mBlog } from '../models/mBlogs';
 import { cache } from '../config/redis';
+import { requireAuth } from '../middleware/requireAuth';
 
 const CACHE_KEY_BLOGS = 'blogs:published';
 const CACHE_TTL = 3600; // 1 hora
@@ -13,17 +14,19 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
             if (cached) return { success: true, data: cached, fromCache: true };
 
             const blogs = await mBlog.find({ published: true }).sort({ createdAt: -1 });
-            
+
             // Salva no Cache
             await cache.set(CACHE_KEY_BLOGS, blogs, CACHE_TTL);
-            
+
             return { success: true, data: blogs };
         } catch (error: any) {
             return { success: false, error: error.message };
         }
     })
-    .get('/all', async () => {
+    .get('/all', async (ctx: any) => {
         // Admin route to fetch all, including drafts
+        const jwt = requireAuth(ctx);
+        if (!jwt) return { success: false, error: 'Não autorizado' };
         try {
             const blogs = await mBlog.find().sort({ createdAt: -1 });
             return { success: true, data: blogs };
@@ -53,7 +56,10 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
             return { success: false, error: error.message };
         }
     })
-    .post('/', async ({ body, set }: any) => {
+    .post('/', async (ctx: any) => {
+        const jwt = requireAuth(ctx);
+        if (!jwt) return { success: false, error: 'Não autorizado' };
+        const { body, set } = ctx;
         try {
             const newBlog = new mBlog(body);
             await newBlog.save();
@@ -67,7 +73,10 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
             return { success: false, error: error.message };
         }
     })
-    .put('/:id', async ({ params, body, set }: any) => {
+    .put('/:id', async (ctx: any) => {
+        const jwt = requireAuth(ctx);
+        if (!jwt) return { success: false, error: 'Não autorizado' };
+        const { params, body, set } = ctx;
         try {
             const blog = await mBlog.findByIdAndUpdate(params.id, body, { new: true });
             if (!blog) {
@@ -85,7 +94,10 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
             return { success: false, error: error.message };
         }
     })
-    .delete('/:id', async ({ params, set }: any) => {
+    .delete('/:id', async (ctx: any) => {
+        const jwt = requireAuth(ctx);
+        if (!jwt) return { success: false, error: 'Não autorizado' };
+        const { params, set } = ctx;
         try {
             const blog = await mBlog.findByIdAndDelete(params.id);
             if (!blog) {

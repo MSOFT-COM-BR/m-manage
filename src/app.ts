@@ -134,9 +134,11 @@ export const app = new Elysia()
                 users: 'GET /auth/users'
             },
             credentials: {
-                list: 'GET /credentials',
-                get: 'GET /credentials/:id',
-                create: 'POST /credentials',
+                list: 'GET /credentials (auth)',
+                get: 'GET /credentials/:id (auth)',
+                create: 'POST /credentials (auth)',
+                update: 'PUT /credentials/:id (auth)',
+                remove: 'DELETE /credentials/:id (auth)',
             },
             tasks: {
                 list: 'GET /tasks',

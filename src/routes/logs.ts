@@ -1,9 +1,12 @@
 import { Elysia, t } from 'elysia';
 import { mLogs } from '../models/mLogs';
+import { requireAuth } from '../middleware/requireAuth';
 
 export const logRoutes = new Elysia({ prefix: '/logs' })
-    // Get recent logs
-    .get('/', async () => {
+    // Get recent logs (contém IP/user-agent/ações de usuários: exige sessão)
+    .get('/', async (ctx: any) => {
+        const jwt = requireAuth(ctx);
+        if (!jwt) return { success: false, error: 'Não autorizado' };
         try {
             const logs = await mLogs.find().sort({ createdAt: -1 }).limit(100);
             return { success: true, count: logs.length, data: logs };

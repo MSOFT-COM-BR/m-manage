@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { mJson } from '../models/mJson';
+import { requireAuth } from '../middleware/requireAuth';
 
 const mjsonBody = t.Object({
     key: t.String({ minLength: 2, maxLength: 120 }),
@@ -13,6 +14,8 @@ const getErrorMessage = (error: unknown): string => {
 };
 
 export const mjsonRoutes = new Elysia({ prefix: '/mjson' })
+    // Módulo de administração de conteúdo (admin.html): exige sessão válida
+    .onBeforeHandle((ctx: any) => requireAuth(ctx) ? undefined : { success: false, error: 'Não autorizado' })
     .get('/', async ({ set }) => {
         try {
             const docs = await mJson.find({}, { key: 1, description: 1, updatedAt: 1 }).sort({ updatedAt: -1 });

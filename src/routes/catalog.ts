@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { mCatalog } from '../models/mCatalog';
+import { requireAuth } from '../middleware/requireAuth';
 
 export const catalogRoutes = new Elysia({ prefix: '/catalog' })
 
@@ -29,8 +30,11 @@ export const catalogRoutes = new Elysia({ prefix: '/catalog' })
         }
     })
 
-    // Seed/Init Catalog (Admin helper)
-    .post('/seed', async ({ set }) => {
+    // Seed/Init Catalog (Admin helper) — reseta o catálogo inteiro, exige sessão
+    .post('/seed', async (ctx: any) => {
+        const jwt = requireAuth(ctx);
+        if (!jwt) return { success: false, error: 'Não autorizado' };
+        const { set } = ctx;
         try {
             const seedData = [
                 // Free Tools
