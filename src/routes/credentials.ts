@@ -19,7 +19,7 @@ export const credentialRoutes = new Elysia({ prefix: '/credentials' })
                 const skip = (pageNum - 1) * limitNum;
 
                 // Sempre filtra pelo dono identificado via JWT, nunca por parâmetro do cliente
-                const filter: any = { userId: jwt.sub };
+                const filter: any = { userId: jwt.sub, deletedAt: null };
 
                 const [items, total] = await Promise.all([
                     mCredential.find(filter)
@@ -66,7 +66,7 @@ export const credentialRoutes = new Elysia({ prefix: '/credentials' })
             if (!jwt) return { success: false, error: 'Não autorizado' };
 
             try {
-                const item = await mCredential.findOne({ _id: ctx.params.id, userId: jwt.sub });
+                const item = await mCredential.findOne({ _id: ctx.params.id, userId: jwt.sub, deletedAt: null });
 
                 if (!item) {
                     ctx.set.status = 404;
@@ -108,7 +108,7 @@ export const credentialRoutes = new Elysia({ prefix: '/credentials' })
 
             try {
                 // userId sempre vem do JWT, nunca do body enviado pelo cliente
-                const newItem = new mCredential({ ...(ctx.body as any), userId: jwt.sub });
+                const newItem = new mCredential({ ...(ctx.body as any), userId: jwt.sub, deletedAt: null });
                 await newItem.save();
 
                 ctx.set.status = 201;
@@ -144,11 +144,11 @@ export const credentialRoutes = new Elysia({ prefix: '/credentials' })
             if (!jwt) return { success: false, error: 'Não autorizado' };
 
             try {
-                // Remove qualquer tentativa de sobrescrever o dono do registro
-                const { userId: _ignored, ...updateBody } = (ctx.body as any) ?? {};
+                // Remove qualquer tentativa de sobrescrever o dono ou o soft-delete do registro
+                const { userId: _ignoredUserId, deletedAt: _ignoredDeletedAt, ...updateBody } = (ctx.body as any) ?? {};
 
                 const item = await mCredential.findOneAndUpdate(
-                    { _id: ctx.params.id, userId: jwt.sub },
+                    { _id: ctx.params.id, userId: jwt.sub, deletedAt: null },
                     { $set: updateBody },
                     { new: true }
                 );
@@ -184,7 +184,7 @@ export const credentialRoutes = new Elysia({ prefix: '/credentials' })
     )
 
     /**
-     * DELETE /credentials/:id - Remove registro do usuário autenticado
+     * DELETE /credentials/:id - Soft delete do registro do usuário autenticado
      */
     .delete(
         '/:id',
@@ -193,7 +193,11 @@ export const credentialRoutes = new Elysia({ prefix: '/credentials' })
             if (!jwt) return { success: false, error: 'Não autorizado' };
 
             try {
-                const item = await mCredential.findOneAndDelete({ _id: ctx.params.id, userId: jwt.sub });
+                const item = await mCredential.findOneAndUpdate(
+                    { _id: ctx.params.id, userId: jwt.sub, deletedAt: null },
+                    { $set: { deletedAt: new Date() } },
+                    { new: true }
+                );
 
                 if (!item) {
                     ctx.set.status = 404;
@@ -218,7 +222,7 @@ export const credentialRoutes = new Elysia({ prefix: '/credentials' })
         },
         {
             detail: {
-                summary: 'Remove credential (somente do dono)',
+                summary: 'Remove credential (soft delete, somente do dono)',
                 tags: ['Credentials'],
             },
         }
