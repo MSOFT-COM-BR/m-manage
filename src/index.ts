@@ -5,7 +5,7 @@ import { presignUpload, readUpload } from './services/uploadService';
 import { userRoutes } from './modules/users/user.controller';
 import { authRoutes } from './routes/auth';
 import { appRoutes } from './routes/apps';
-import { catalogRoutes } from './routes/catalog';
+import { catalogRoutes, ensureCatalogSeeded } from './routes/catalog';
 import { credentialRoutes } from './routes/credentials';
 import { healthtechRoutes } from './routes/healthtech';
 import { taskRoutes } from './routes/tasks';
@@ -24,6 +24,7 @@ import { bvaCatalogAccessRoutes } from './routes/bvaCatalogAccess';
 
 // 1. Inicializa Conexão com Banco
 await connectMongo();
+await ensureCatalogSeeded();
 
 const isDev = process.env.NODE_ENV !== 'production';
 
