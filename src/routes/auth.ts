@@ -2,8 +2,13 @@ import { Elysia, t } from 'elysia';
 import { mAuth } from '../models/mAuth';
 import { mLogs } from '../models/mLogs';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../config/jwt';
-import { requireAuth } from '../middleware/requireAuth';
+import { requireActiveUser, requireMasterAdmin } from '../middleware/requireAuth';
 import { mAppAccess } from '../models/mAppAccess';
+
+const APP_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const APP_ACCESS_ROLES = new Set(['owner', 'editor', 'viewer']);
+const USER_ROLES = new Set(['admin', 'user', 'premium']);
 
 export const authRoutes = new Elysia({ prefix: '/auth' })
 
@@ -91,7 +96,8 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         })
     })
 
-    // Register
+    // Cadastro publico sempre cria uma conta comum. Papeis e acessos sao
+    // concedidos exclusivamente pelo fluxo administrativo autenticado.
     .post('/register', async ({ body, set }: any) => {
         try {
             const existing = await mAuth.findOne({ email: body.email });
@@ -100,9 +106,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
                 return { success: false, error: 'Email já cadastrado' };
             }
 
-            const roles = Array.isArray(body.roles) ? body.roles
-                : body.role ? [body.role]
-                : ['user'];
+            const roles = ['user'];
 
             const hashedPassword = await Bun.password.hash(body.password, { algorithm: 'argon2id' });
 
@@ -129,17 +133,6 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
             newUser.refreshToken = refreshToken;
             await newUser.save();
 
-            // Auto-grant viewer em bva para todos os usuários novos
-            try {
-                const appRole = roles.includes('reseller') || roles.includes('editor') ? 'editor' : 'viewer';
-                await mAppAccess.create({
-                    userId: newUser.id,
-                    appKey: 'bva',
-                    role: appRole,
-                    grantedBy: newUser.id,
-                });
-            } catch (_) { /* ignora se já existir */ }
-
             set.status = 201;
             return {
                 success: true,
@@ -159,6 +152,115 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
             password: t.String(),
             role: t.Optional(t.String()),
             roles: t.Optional(t.Array(t.String()))
+        })
+    })
+
+    // Chaves ja usadas no controle de acesso. O campo continua livre para que
+    // o Admin Master consiga provisionar a primeira conta de uma nova app.
+    .get('/admin/applications', async (ctx: any) => {
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) return { success: false, error: 'Não autorizado' };
+
+        try {
+            const appKeys = await mAppAccess.distinct('appKey');
+            const data = [...new Set(appKeys
+                .map((appKey) => String(appKey || '').trim().toLowerCase())
+                .filter((appKey) => APP_KEY_PATTERN.test(appKey)))]
+                .sort()
+                .map((appKey) => ({ appKey }));
+
+            return { success: true, data };
+        } catch (error: any) {
+            ctx.set.status = 500;
+            return { success: false, error: error.message };
+        }
+    })
+
+    // Cria uma conta comum e concede o primeiro acesso a uma aplicacao. Este
+    // endpoint nunca aceita papel global do cliente.
+    .post('/admin/users', async (ctx: any) => {
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) return { success: false, error: 'Não autorizado' };
+
+        const { body, set } = ctx;
+        const name = String(body.name || '').trim();
+        const email = String(body.email || '').trim().toLowerCase();
+        const password = String(body.password || '');
+        const appKey = String(body.appKey || '').trim().toLowerCase();
+        const appRole = String(body.appRole || 'viewer');
+
+        if (!name || !EMAIL_PATTERN.test(email) || password.length < 12 || !APP_KEY_PATTERN.test(appKey) || !APP_ACCESS_ROLES.has(appRole)) {
+            set.status = 400;
+            return { success: false, error: 'Informe nome, e-mail valido, senha de ao menos 12 caracteres, aplicacao e permissao validas.' };
+        }
+
+        const existing = await mAuth.findOne({ email });
+        if (existing) {
+            set.status = 409;
+            return { success: false, error: 'E-mail já cadastrado.' };
+        }
+
+        let newUser: any;
+        try {
+            const hashedPassword = await Bun.password.hash(password, { algorithm: 'argon2id' });
+            newUser = await mAuth.create({
+                name,
+                email,
+                password: hashedPassword,
+                roles: ['user'],
+                provider: 'local',
+                status: 'active',
+            });
+
+            const access = await mAppAccess.create({
+                userId: newUser.id,
+                appKey,
+                role: appRole,
+                grantedBy: admin.sub,
+            });
+
+            try {
+                await mLogs.create({
+                    action: 'CREATE_APP_USER',
+                    details: `Conta ${email} criada para ${appKey} com papel ${appRole}.`,
+                    user: admin.email,
+                    level: 'warning',
+                    metadata: { userId: newUser.id, appKey, appRole, grantedBy: admin.sub },
+                });
+            } catch {
+                // A criacao ja foi concluida; falha de auditoria nao pode gerar uma conta duplicada.
+            }
+
+            set.status = 201;
+            return {
+                success: true,
+                message: 'Usuário criado e acesso concedido.',
+                user: newUser.toJSON(),
+                access: access.toJSON(),
+            };
+        } catch (error: any) {
+            // Evita deixar uma conta sem acesso caso a gravacao de mAppAccess falhe.
+            if (newUser) {
+                await mAppAccess.deleteOne({ userId: newUser.id, appKey }).catch(() => undefined);
+                await mAuth.findByIdAndDelete(newUser.id).catch(() => undefined);
+            }
+
+            if (error?.code === 11000) {
+                set.status = 409;
+                return { success: false, error: 'E-mail ou acesso já cadastrado.' };
+            }
+
+            console.error('Failed to create application user:', error);
+            set.status = 500;
+            return { success: false, error: 'Não foi possível criar o usuário.' };
+        }
+    }, {
+        body: t.Object({
+            name: t.String({ minLength: 1, maxLength: 120 }),
+            email: t.String({ minLength: 3, maxLength: 254 }),
+            password: t.String({ minLength: 12, maxLength: 128 }),
+            appKey: t.String({ minLength: 2, maxLength: 64 }),
+            appRole: t.Optional(t.String({ pattern: '^(owner|editor|viewer)$' })),
         })
     })
 
@@ -240,46 +342,96 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         }
     })
 
-    // Me — retorna usuário logado
-    .get('/me', async ({ headers, set }: any) => {
+    // Me — retorna usuario logado e ainda ativo
+    .get('/me', async (ctx: any) => {
         try {
-            const auth = headers?.authorization;
-            if (!auth?.startsWith('Bearer ')) {
-                set.status = 401;
-                return { success: false, error: 'Não autenticado' };
-            }
-            const { verifyAccessToken } = await import('../config/jwt');
-            const payload = verifyAccessToken(auth.slice(7));
+            const payload = await requireActiveUser(ctx);
+            if (!payload) return { success: false, error: 'Não autenticado' };
+
             const user = await mAuth.findById(payload.sub);
             if (!user) {
-                set.status = 404;
+                ctx.set.status = 404;
                 return { success: false, error: 'Usuário não encontrado' };
             }
             return { success: true, user: user.toJSON() };
         } catch {
-            set.status = 401;
+            ctx.set.status = 401;
             return { success: false, error: 'Token inválido ou expirado' };
         }
     })
 
-    // List users (Admin)
-    .get('/users', async () => {
+    // List users (Admin Master)
+    .get('/users', async (ctx: any) => {
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) return { success: false, error: 'Não autorizado' };
+
         const users = await mAuth.find().sort({ createdAt: -1 });
         return { success: true, count: users.length, data: users };
     })
 
-    // Update User (Admin)
-    .put('/users/:id', async ({ params, body, set }: any) => {
+    // Update User (Admin Master). Apenas campos administrativos explicitos sao aceitos.
+    .put('/users/:id', async (ctx: any) => {
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) return { success: false, error: 'Não autorizado' };
+
+        const { params, set } = ctx;
+        const body = ctx.body || {};
         try {
-            if (body.password === '') delete body.password;
-            if (body.password) {
-                body.password = await Bun.password.hash(body.password, { algorithm: 'argon2id' });
+            const updates: Record<string, unknown> = {};
+            let invalidateSessions = false;
+
+            if (typeof body.name === 'string' && body.name.trim()) {
+                updates.name = body.name.trim();
             }
-            if (typeof body.roles === 'string') {
-                body.roles = body.roles.split(',').map((r: string) => r.trim());
+            if (typeof body.email === 'string' && body.email.trim()) {
+                const email = body.email.trim().toLowerCase();
+                if (!EMAIL_PATTERN.test(email)) {
+                    set.status = 400;
+                    return { success: false, error: 'E-mail inválido.' };
+                }
+                updates.email = email;
+            }
+            if (typeof body.password === 'string' && body.password) {
+                if (body.password.length < 8) {
+                    set.status = 400;
+                    return { success: false, error: 'A senha deve ter ao menos 8 caracteres.' };
+                }
+                updates.password = await Bun.password.hash(body.password, { algorithm: 'argon2id' });
+                invalidateSessions = true;
+            }
+            if (body.roles !== undefined) {
+                const roles = (Array.isArray(body.roles) ? body.roles : String(body.roles).split(','))
+                    .map((role: unknown) => String(role).trim())
+                    .filter(Boolean);
+                if (!roles.length || roles.some((role: string) => !USER_ROLES.has(role))) {
+                    set.status = 400;
+                    return { success: false, error: 'Papéis de usuário inválidos.' };
+                }
+                updates.roles = [...new Set(roles)];
+                invalidateSessions = true;
+            }
+            if (body.status !== undefined) {
+                if (body.status !== 'active' && body.status !== 'inactive') {
+                    set.status = 400;
+                    return { success: false, error: 'Status de usuário inválido.' };
+                }
+                updates.status = body.status;
+                invalidateSessions = true;
+            }
+            if (typeof body.avatar === 'string') updates.avatar = body.avatar.trim();
+
+            if (!Object.keys(updates).length) {
+                set.status = 400;
+                return { success: false, error: 'Nenhum campo atualizável foi informado.' };
             }
 
-            const updatedUser = await mAuth.findByIdAndUpdate(params.id, body, { new: true });
+            const update: Record<string, unknown> = { $set: updates };
+            if (invalidateSessions) {
+                update.$inc = { tokenVersion: 1 };
+                update.$unset = { refreshToken: 1 };
+            }
+
+            const updatedUser = await mAuth.findByIdAndUpdate(params.id, update, { new: true, runValidators: true });
             if (!updatedUser) {
                 set.status = 404;
                 return { success: false, error: 'Usuário não encontrado' };
@@ -289,13 +441,17 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
                 await mLogs.create({
                     action: 'UPDATE_USER',
                     details: `User updated: ${updatedUser.email}`,
-                    user: 'admin',
+                    user: admin.email,
                     level: 'warning'
                 });
             } catch {}
 
-            return { success: true, message: 'Usuário atualizado', user: updatedUser };
+            return { success: true, message: 'Usuário atualizado', user: updatedUser.toJSON() };
         } catch (error: any) {
+            if (error?.code === 11000) {
+                set.status = 409;
+                return { success: false, error: 'E-mail já cadastrado.' };
+            }
             set.status = 500;
             return { success: false, error: error.message };
         }
