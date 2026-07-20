@@ -40,6 +40,18 @@ const appAccessUpdateBody = t.Object({
     role: t.String({ pattern: '^(owner|editor|viewer)$' }),
 }, { additionalProperties: false });
 
+// Auto-atualizacao (PUT /auth/me): mais restrito que o CRUD de admin — sem
+// email, sem qualquer campo de privilegio. Qualquer usuario ativo pode
+// chamar para o proprio perfil, sem precisar ser Admin Master.
+const selfUpdateBody = t.Object({
+    name: t.Optional(t.String({ minLength: 1, maxLength: 120 })),
+    password: t.Optional(t.String({ minLength: 12, maxLength: 128 })),
+    email: t.Optional(t.Never()),
+    role: t.Optional(t.Never()),
+    roles: t.Optional(t.Never()),
+    status: t.Optional(t.Never()),
+}, { additionalProperties: false });
+
 function escapeRegex(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -902,6 +914,67 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
             return { success: false, error: 'Token inválido ou expirado' };
         }
     })
+
+    // Auto-atualizacao do proprio perfil (nome/senha). Diferente do CRUD de
+    // admin: qualquer usuario ativo pode chamar para si mesmo, sem precisar
+    // ser Admin Master. Trocar a senha invalida a sessao atual, como no CRUD.
+    .put('/me', async (ctx: any) => {
+        try {
+            const payload = await requireActiveUser(ctx);
+            if (!payload) return { success: false, error: 'Não autenticado' };
+
+            const body = ctx.body || {};
+            const updates: Record<string, unknown> = {};
+
+            if (body.name !== undefined) {
+                const name = String(body.name || '').trim();
+                if (!name) {
+                    ctx.set.status = 400;
+                    return { success: false, error: 'Nome inválido.' };
+                }
+                updates.name = name;
+            }
+            if (body.password !== undefined) {
+                const password = String(body.password || '');
+                if (password.length < 12) {
+                    ctx.set.status = 400;
+                    return { success: false, error: 'A senha deve ter ao menos 12 caracteres.' };
+                }
+                updates.password = await Bun.password.hash(password, { algorithm: 'argon2id' });
+            }
+            if (!Object.keys(updates).length) {
+                ctx.set.status = 400;
+                return { success: false, error: 'Nenhum campo atualizável foi informado.' };
+            }
+
+            const passwordChanged = body.password !== undefined;
+            const update: Record<string, unknown> = { $set: updates };
+            if (passwordChanged) {
+                // Trocar a propria senha invalida a sessao atual — o usuario loga de novo com a nova senha.
+                Object.assign(update, { $inc: { tokenVersion: 1 }, $unset: { refreshToken: 1 } });
+            }
+
+            const updatedUser = await mAuth.findByIdAndUpdate(payload.sub, update, {
+                new: true,
+                runValidators: true,
+            });
+
+            if (!updatedUser) {
+                ctx.set.status = 404;
+                return { success: false, error: 'Usuário não encontrado.' };
+            }
+
+            return {
+                success: true,
+                message: passwordChanged ? 'Perfil atualizado. Faça login novamente com a nova senha.' : 'Perfil atualizado.',
+                user: updatedUser.toJSON(),
+            };
+        } catch (error: any) {
+            console.error('Failed to update own profile:', error);
+            ctx.set.status = 500;
+            return { success: false, error: 'Não foi possível atualizar o perfil.' };
+        }
+    }, { body: selfUpdateBody })
 
     // CRUD de contas de aplicacao. As rotas legadas /users usam o mesmo
     // handler seguro, mas nao podem alterar papeis globais nem contas admin.

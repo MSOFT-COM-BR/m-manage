@@ -573,6 +573,93 @@ describe('Auth API', () => {
         expect(regularResponse.status).toBe(403);
     });
 
+    test('PUT /auth/me updates the caller own name without invalidating the session', async () => {
+        const response = await app.handle(
+            new Request('http://localhost:3000/auth/me', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${regularToken}`,
+                },
+                body: JSON.stringify({ name: 'Regular Renamed' }),
+            })
+        );
+        const data: any = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(data.success).toBe(true);
+        expect(data.user.name).toBe('Regular Renamed');
+
+        // Sessao continua valida — so troca de senha invalida.
+        const meResponse = await app.handle(
+            new Request('http://localhost:3000/auth/me', {
+                headers: { Authorization: `Bearer ${regularToken}` },
+            })
+        );
+        expect(meResponse.status).toBe(200);
+    });
+
+    test('PUT /auth/me rejects an attempt to escalate role/email/status via the payload', async () => {
+        const response = await app.handle(
+            new Request('http://localhost:3000/auth/me', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${regularToken}`,
+                },
+                body: JSON.stringify({ name: 'Still Regular', roles: ['admin'], email: 'hijack@msoft.com.br', status: 'active' }),
+            })
+        );
+        expect(response.status).toBe(400);
+
+        const user = await mAuth.findOne({ email: regularEmail });
+        expect(user?.roles).toEqual(['user']);
+        expect(user?.email).toBe(regularEmail);
+    });
+
+    test('PUT /auth/me rejects requests without authentication', async () => {
+        const response = await app.handle(
+            new Request('http://localhost:3000/auth/me', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'Nobody' }),
+            })
+        );
+        expect(response.status).toBe(401);
+    });
+
+    test('PUT /auth/me changing the password invalidates the current session', async () => {
+        const passwordResponse = await app.handle(
+            new Request('http://localhost:3000/auth/me', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${regularToken}`,
+                },
+                body: JSON.stringify({ password: 'brand-new-password-123' }),
+            })
+        );
+        expect(passwordResponse.status).toBe(200);
+
+        const oldSession = await app.handle(
+            new Request('http://localhost:3000/auth/me', {
+                headers: { Authorization: `Bearer ${regularToken}` },
+            })
+        );
+        expect(oldSession.status).toBe(401);
+
+        const login = await app.handle(
+            new Request('http://localhost:3000/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: regularEmail, password: 'brand-new-password-123' }),
+            })
+        );
+        const loginData: any = await login.json();
+        expect(login.status).toBe(200);
+        expect(loginData.success).toBe(true);
+    });
+
     test('POST /auth/admin/users rejects an Admin Master token invalidated after issuance', async () => {
         await mAuth.updateOne({ email: masterEmail }, { $inc: { tokenVersion: 1 } });
 
