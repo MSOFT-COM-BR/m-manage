@@ -7,12 +7,12 @@ import { EducationContent } from '../models/healthtech/EducationContent';
 import { LoyaltyProgram, LoyaltyReward } from '../models/healthtech/LoyaltyProgram';
 import { FollowUp, FollowUpRule } from '../models/healthtech/FollowUp';
 import { AuditLog, createAuditLog } from '../models/healthtech/AuditLog';
-import { requireAuth } from '../middleware/requireAuth';
+import { requireAppAccess } from '../middleware/requireAuth';
 
 /**
  * HealthTech Routes
  * Farmácia 4.0 - Complete Pharmacy Management System
- * 
+ *
  * Modules:
  * 1. Pharmacy Management (Multi-tenancy / White-label)
  * 2. Patient CRM
@@ -23,10 +23,14 @@ import { requireAuth } from '../middleware/requireAuth';
  * 7. Analytics
  */
 export const healthtechRoutes = new Elysia({ prefix: '/healthtech' })
-    // Dados de pacientes/prontuário: exige sessão válida.
-    // TODO: isolar por pharmacyId/tenant via requireAppAccess quando o appKey do healthtech
-    // for registrado em mAppAccess — hoje só bloqueia acesso totalmente anônimo.
-    .onBeforeHandle((ctx: any) => requireAuth(ctx) ? undefined : { success: false, error: 'Não autorizado' })
+    // Dados de pacientes/prontuário: exige sessão ativa E o app healthtech_os_v1
+    // instalado (mApps) — não basta estar logado com qualquer conta. Admin
+    // Master sempre passa (requireAppAccess trata isso internamente).
+    .onBeforeHandle(async (ctx: any) => {
+        const check = requireAppAccess('healthtech_os_v1');
+        const user = await check(ctx);
+        return user ? undefined : { success: false, error: 'Não autorizado' };
+    })
 
     // ============================================
     // PHARMACY MANAGEMENT (Module 1 - White Label)

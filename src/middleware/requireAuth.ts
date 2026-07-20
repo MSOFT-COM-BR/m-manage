@@ -1,5 +1,6 @@
 import { verifyAccessToken, JwtPayload } from '../config/jwt';
 import { mAuth } from '../models/mAuth';
+import { mApps } from '../models/mApps';
 
 export function requireAuth(ctx: any): JwtPayload | undefined {
     const auth = ctx.headers?.authorization || ctx.request?.headers?.get?.('authorization');
@@ -71,4 +72,27 @@ export async function requireMasterAdmin(ctx: any): Promise<JwtPayload | undefin
     }
 
     return user;
+}
+
+/**
+ * Exige sessao ativa E o app instalado (mApps, status 'active') para o
+ * appKey informado. Admin Master sempre passa, independente de instalacao —
+ * mesma logica ja usada em GET /apps?all=1. Use em modulos com dado sensivel
+ * (ex: prontuario/paciente do healthtech) para nao depender so de "estar logado".
+ */
+export function requireAppAccess(appKey: string) {
+    return async (ctx: any): Promise<JwtPayload | undefined> => {
+        const user = await requireActiveUser(ctx);
+        if (!user) return undefined;
+
+        if (user.roles.includes('admin')) return user;
+
+        const installed = await mApps.findOne({ userId: user.sub, appKey, status: 'active' });
+        if (!installed) {
+            ctx.set.status = 403;
+            return undefined;
+        }
+
+        return user;
+    };
 }
