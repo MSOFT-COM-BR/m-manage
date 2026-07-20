@@ -4,6 +4,8 @@ import { mLogs } from '../models/mLogs';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../config/jwt';
 import { requireActiveUser, requireMasterAdmin } from '../middleware/requireAuth';
 import { mAppAccess } from '../models/mAppAccess';
+import { mApps } from '../models/mApps';
+import { mCatalog } from '../models/mCatalog';
 import mongoose from 'mongoose';
 
 const APP_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -52,6 +54,16 @@ function toAccessResponse(access: any) {
         role: String(access.role),
         createdAt: access.createdAt,
         updatedAt: access.updatedAt,
+    };
+}
+
+function toInstalledAppResponse(app: any) {
+    return {
+        appKey: String(app.appKey),
+        name: String(app.name),
+        status: String(app.status),
+        createdAt: app.createdAt,
+        updatedAt: app.updatedAt,
     };
 }
 
@@ -387,6 +399,110 @@ async function revokeManagedUserAccess(ctx: any) {
         console.error('Failed to revoke managed user access:', error);
         ctx.set.status = 500;
         return { success: false, error: 'Não foi possível revogar o acesso da aplicação.' };
+    }
+}
+
+async function listManagedUserApps(ctx: any) {
+    const admin = await requireMasterAdmin(ctx);
+    if (!admin) return { success: false, error: 'Não autorizado' };
+
+    try {
+        const user = await findManagedUser(ctx, admin, ctx.params.id);
+        if (!user) return { success: false, error: 'Usuário não disponível para gestão.' };
+
+        const apps = await mApps.find({ userId: user._id }).sort({ appKey: 1 });
+        return { success: true, data: apps.map(toInstalledAppResponse) };
+    } catch (error) {
+        console.error('Failed to list managed user apps:', error);
+        ctx.set.status = 500;
+        return { success: false, error: 'Não foi possível carregar os apps do usuário.' };
+    }
+}
+
+// Instala/ativa um app do catalogo na conta de outro usuario. Diferente do
+// POST /apps/install (que o proprio usuario chama para si), este endpoint
+// existe para o Admin Master corrigir contas sem depender do usuario agir —
+// ex: restaurar acesso a um app que deveria ter sido concedido e nao foi.
+async function installManagedUserApp(ctx: any) {
+    const admin = await requireMasterAdmin(ctx);
+    if (!admin) return { success: false, error: 'Não autorizado' };
+
+    try {
+        const user = await findManagedUser(ctx, admin, ctx.params.id);
+        if (!user) return { success: false, error: 'Usuário não disponível para gestão.' };
+        if (user.status !== 'active') {
+            ctx.set.status = 409;
+            return { success: false, error: 'Reative o usuário antes de instalar novos apps.' };
+        }
+
+        const appKey = normalizeAppKey(ctx.params.appKey);
+        if (!APP_KEY_PATTERN.test(appKey)) {
+            ctx.set.status = 400;
+            return { success: false, error: 'Aplicação inválida.' };
+        }
+
+        const catalogItem = await mCatalog.findOne({ appKey });
+        if (!catalogItem) {
+            ctx.set.status = 404;
+            return { success: false, error: 'App não encontrado no catálogo.' };
+        }
+
+        const app = await mApps.findOneAndUpdate(
+            { userId: user._id, appKey },
+            {
+                $set: { status: 'active', name: catalogItem.name },
+                $setOnInsert: { userId: user._id, appKey },
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true },
+        );
+
+        await writeAdminAudit(
+            admin,
+            'INSTALL_APP_USER_APP',
+            `App ${appKey} instalado para ${user.email} pelo Admin Master.`,
+            { userId: user.id, appKey, installedBy: admin.sub },
+        );
+
+        return { success: true, data: toInstalledAppResponse(app) };
+    } catch (error) {
+        console.error('Failed to install managed user app:', error);
+        ctx.set.status = 500;
+        return { success: false, error: 'Não foi possível instalar o app para o usuário.' };
+    }
+}
+
+async function removeManagedUserApp(ctx: any) {
+    const admin = await requireMasterAdmin(ctx);
+    if (!admin) return { success: false, error: 'Não autorizado' };
+
+    try {
+        const user = await findManagedUser(ctx, admin, ctx.params.id);
+        if (!user) return { success: false, error: 'Usuário não disponível para gestão.' };
+
+        const appKey = normalizeAppKey(ctx.params.appKey);
+        if (!APP_KEY_PATTERN.test(appKey)) {
+            ctx.set.status = 400;
+            return { success: false, error: 'Aplicação inválida.' };
+        }
+
+        const deleted = await mApps.findOneAndDelete({ userId: user._id, appKey });
+        if (!deleted) {
+            ctx.set.status = 404;
+            return { success: false, error: 'App não encontrado para este usuário.' };
+        }
+
+        await writeAdminAudit(
+            admin,
+            'REMOVE_APP_USER_APP',
+            `App ${appKey} removido de ${user.email} pelo Admin Master.`,
+            { userId: user.id, appKey, removedBy: admin.sub },
+        );
+
+        return { success: true, message: 'App removido.' };
+    } catch (error) {
+        console.error('Failed to remove managed user app:', error);
+        ctx.set.status = 500;
+        return { success: false, error: 'Não foi possível remover o app do usuário.' };
     }
 }
 
@@ -797,4 +913,10 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     .post('/admin/users/:id/reactivate', reactivateManagedUser)
     .put('/admin/users/:id/access/:appKey', setManagedUserAccess, { body: appAccessUpdateBody })
     .delete('/admin/users/:id/access/:appKey', revokeManagedUserAccess)
+    // Apps instalados (mApps) sao um conceito separado do papel de acesso
+    // (mAppAccess) acima: um controla o que aparece em "Meus Aplicativos" no
+    // /premium, o outro controla owner/editor/viewer por app.
+    .get('/admin/users/:id/apps', listManagedUserApps)
+    .put('/admin/users/:id/apps/:appKey', installManagedUserApp)
+    .delete('/admin/users/:id/apps/:appKey', removeManagedUserApp)
     .delete('/admin/users/:id', deactivateManagedUser);

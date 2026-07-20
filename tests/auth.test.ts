@@ -4,6 +4,8 @@ import { db } from '../src/config/database';
 import { signAccessToken } from '../src/config/jwt';
 import { mAuth } from '../src/models/mAuth';
 import { mAppAccess } from '../src/models/mAppAccess';
+import { mApps } from '../src/models/mApps';
+import { mCatalog } from '../src/models/mCatalog';
 
 // Use test database
 if (!process.env.MONGODB_URI) {
@@ -30,9 +32,19 @@ describe('Auth API', () => {
     let provisionedUserId = '';
     let provisionedToken = '';
 
+    const testAppKey = `test-app-${Date.now()}`;
+
     beforeAll(async () => {
         await db.connect();
         await mAuth.deleteMany({ email: { $in: [testUser.email, masterEmail, protectedAdminEmail, regularEmail, provisionedEmail] } });
+        await mCatalog.deleteMany({ appKey: testAppKey });
+        await mCatalog.create({
+            name: 'Test App',
+            appKey: testAppKey,
+            description: 'App de teste para as rotas administrativas de mApps.',
+            type: 'free',
+            icon: 'bi-box',
+        });
 
         const [masterPassword, protectedAdminPassword, regularPassword] = await Promise.all([
             Bun.password.hash('master-password-123', { algorithm: 'argon2id' }),
@@ -75,7 +87,9 @@ describe('Auth API', () => {
     afterAll(async () => {
         const users = await mAuth.find({ email: { $in: [testUser.email, masterEmail, protectedAdminEmail, regularEmail, provisionedEmail] } }).select('_id');
         await mAppAccess.deleteMany({ userId: { $in: users.map((user) => user._id) } });
+        await mApps.deleteMany({ userId: { $in: users.map((user) => user._id) } });
         await mAuth.deleteMany({ email: { $in: [testUser.email, masterEmail, protectedAdminEmail, regularEmail, provisionedEmail] } });
+        await mCatalog.deleteMany({ appKey: testAppKey });
         await db.disconnect();
     });
 
@@ -404,6 +418,87 @@ describe('Auth API', () => {
         expect(revokeData.success).toBe(true);
         expect(await mAppAccess.findOne({ userId: provisionedUserId, appKey: 'bva' })).toBeNull();
         expect(await mAppAccess.findOne({ userId: provisionedUserId, appKey: 'healthtech' })).not.toBeNull();
+    });
+
+    test('PUT /auth/admin/users/:id/apps/:appKey installs a catalog app for the managed user', async () => {
+        const installResponse = await app.handle(
+            new Request(`http://localhost:3000/auth/admin/users/${provisionedUserId}/apps/${testAppKey}`, {
+                method: 'PUT',
+                headers: { Authorization: `Bearer ${masterToken}` },
+            })
+        );
+        const installData: any = await installResponse.json();
+
+        expect(installResponse.status).toBe(200);
+        expect(installData.success).toBe(true);
+        expect(installData.data).toMatchObject({ appKey: testAppKey, name: 'Test App', status: 'active' });
+        expect(await mApps.findOne({ userId: provisionedUserId, appKey: testAppKey })).not.toBeNull();
+
+        // Idempotente: instalar de novo nao cria duplicata (indice unico userId+appKey)
+        const secondInstall = await app.handle(
+            new Request(`http://localhost:3000/auth/admin/users/${provisionedUserId}/apps/${testAppKey}`, {
+                method: 'PUT',
+                headers: { Authorization: `Bearer ${masterToken}` },
+            })
+        );
+        expect(secondInstall.status).toBe(200);
+        expect(await mApps.countDocuments({ userId: provisionedUserId, appKey: testAppKey })).toBe(1);
+    });
+
+    test('PUT /auth/admin/users/:id/apps/:appKey rejects an appKey outside the catalog', async () => {
+        const response = await app.handle(
+            new Request(`http://localhost:3000/auth/admin/users/${provisionedUserId}/apps/not-in-catalog`, {
+                method: 'PUT',
+                headers: { Authorization: `Bearer ${masterToken}` },
+            })
+        );
+        expect(response.status).toBe(404);
+        expect(await mApps.findOne({ userId: provisionedUserId, appKey: 'not-in-catalog' })).toBeNull();
+    });
+
+    test('PUT /auth/admin/users/:id/apps/:appKey rejects a standard user', async () => {
+        const response = await app.handle(
+            new Request(`http://localhost:3000/auth/admin/users/${provisionedUserId}/apps/${testAppKey}`, {
+                method: 'PUT',
+                headers: { Authorization: `Bearer ${regularToken}` },
+            })
+        );
+        expect(response.status).toBe(403);
+    });
+
+    test('GET /auth/admin/users/:id/apps lists installed apps for the managed user', async () => {
+        const response = await app.handle(
+            new Request(`http://localhost:3000/auth/admin/users/${provisionedUserId}/apps`, {
+                headers: { Authorization: `Bearer ${masterToken}` },
+            })
+        );
+        const data: any = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(data.success).toBe(true);
+        expect(data.data).toContainEqual(expect.objectContaining({ appKey: testAppKey, status: 'active' }));
+    });
+
+    test('DELETE /auth/admin/users/:id/apps/:appKey removes the installed app', async () => {
+        const response = await app.handle(
+            new Request(`http://localhost:3000/auth/admin/users/${provisionedUserId}/apps/${testAppKey}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${masterToken}` },
+            })
+        );
+        const data: any = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(data.success).toBe(true);
+        expect(await mApps.findOne({ userId: provisionedUserId, appKey: testAppKey })).toBeNull();
+
+        const secondDelete = await app.handle(
+            new Request(`http://localhost:3000/auth/admin/users/${provisionedUserId}/apps/${testAppKey}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${masterToken}` },
+            })
+        );
+        expect(secondDelete.status).toBe(404);
     });
 
     test('DELETE /auth/admin/users/:id deactivates the account and revokes all application access', async () => {
