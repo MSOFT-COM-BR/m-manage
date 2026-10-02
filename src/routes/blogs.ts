@@ -4,11 +4,18 @@ import { mBlogCategory } from '../models/mBlogCategory';
 import { cache } from '../config/redis';
 import { requireAuth } from '../middleware/requireAuth';
 
-const CACHE_KEY_BLOGS = 'blogs:published';
+// Versioned to avoid serving the former full-article payload until its TTL expires.
+const CACHE_KEY_BLOGS = 'blogs:published:listing:v1';
 const CACHE_TTL = 3600; // 1 hora
 
 // Categorias padrao semeadas na primeira consulta, quando a colecao esta vazia.
 const DEFAULT_BLOG_CATEGORIES = ['Tecnologia', 'White Label', 'Produtividade', 'Design', 'Negócios'];
+
+/** The public list only needs card metadata; full article HTML is fetched by slug. */
+export const toBlogListingItem = (blog: Record<string, unknown>) => {
+    const { content: _content, ...listing } = blog;
+    return listing;
+};
 
 const ensureDefaultCategories = async () => {
     const count = await mBlogCategory.estimatedDocumentCount();
@@ -24,12 +31,16 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
             const cached = await cache.get(CACHE_KEY_BLOGS);
             if (cached) return { success: true, data: cached, fromCache: true };
 
-            const blogs = await mBlog.find({ published: true }).sort({ createdAt: -1 });
+            const blogs = await mBlog.find({ published: true })
+                .select('-content')
+                .sort({ createdAt: -1 })
+                .lean();
+            const listing = blogs.map(toBlogListingItem);
 
             // Salva no Cache
-            await cache.set(CACHE_KEY_BLOGS, blogs, CACHE_TTL);
+            await cache.set(CACHE_KEY_BLOGS, listing, CACHE_TTL);
 
-            return { success: true, data: blogs };
+            return { success: true, data: listing };
         } catch (error: any) {
             return { success: false, error: error.message };
         }
