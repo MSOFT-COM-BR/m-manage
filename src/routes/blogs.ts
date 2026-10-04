@@ -2,7 +2,7 @@ import { Elysia } from 'elysia';
 import { mBlog } from '../models/mBlogs';
 import { mBlogCategory } from '../models/mBlogCategory';
 import { cache } from '../config/redis';
-import { requireAuth } from '../middleware/requireAuth';
+import { requireMasterAdmin } from '../middleware/requireAuth';
 
 // Versioned to avoid serving the former full-article payload until its TTL expires.
 const CACHE_KEY_BLOGS = 'blogs:published:listing:v1';
@@ -47,8 +47,8 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
     })
     .get('/all', async (ctx: any) => {
         // Admin route to fetch all, including drafts
-        const jwt = requireAuth(ctx);
-        if (!jwt) return { success: false, error: 'Não autorizado' };
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) return { success: false, error: 'Não autorizado' };
         try {
             const blogs = await mBlog.find().sort({ createdAt: -1 });
             return { success: true, data: blogs };
@@ -67,8 +67,8 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
         }
     })
     .post('/categories', async (ctx: any) => {
-        const jwt = requireAuth(ctx);
-        if (!jwt) return { success: false, error: 'Não autorizado' };
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) return { success: false, error: 'Não autorizado' };
         const { body, set } = ctx;
         try {
             const name = String(body && body.name ? body.name : '').trim();
@@ -90,8 +90,8 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
         }
     })
     .put('/categories/:id', async (ctx: any) => {
-        const jwt = requireAuth(ctx);
-        if (!jwt) return { success: false, error: 'Não autorizado' };
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) return { success: false, error: 'Não autorizado' };
         const { params, body, set } = ctx;
         try {
             const name = String(body && body.name ? body.name : '').trim();
@@ -119,8 +119,8 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
         }
     })
     .delete('/categories/:id', async (ctx: any) => {
-        const jwt = requireAuth(ctx);
-        if (!jwt) return { success: false, error: 'Não autorizado' };
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) return { success: false, error: 'Não autorizado' };
         const { params, set } = ctx;
         try {
             const category = await mBlogCategory.findByIdAndDelete(params.id);
@@ -136,11 +136,11 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
     })
     .get('/:slug', async ({ params }: any) => {
         try {
-            const cacheKey = `blog:slug:${params.slug}`;
+            const cacheKey = `blog:published:slug:v2:${params.slug}`;
             const cached = await cache.get(cacheKey);
             if (cached) return { success: true, data: cached, fromCache: true };
 
-            const blog = await mBlog.findOne({ slug: params.slug });
+            const blog = await mBlog.findOne({ slug: params.slug, published: true });
             if (!blog) {
                 return { success: false, error: 'Post não encontrado' };
             }
@@ -157,8 +157,8 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
         }
     })
     .post('/', async (ctx: any) => {
-        const jwt = requireAuth(ctx);
-        if (!jwt) return { success: false, error: 'Não autorizado' };
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) return { success: false, error: 'Não autorizado' };
         const { body, set } = ctx;
         try {
             const newBlog = new mBlog(body);
@@ -174,10 +174,11 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
         }
     })
     .put('/:id', async (ctx: any) => {
-        const jwt = requireAuth(ctx);
-        if (!jwt) return { success: false, error: 'Não autorizado' };
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) return { success: false, error: 'Não autorizado' };
         const { params, body, set } = ctx;
         try {
+            const previous = await mBlog.findById(params.id).select('slug');
             const blog = await mBlog.findByIdAndUpdate(params.id, body, { new: true });
             if (!blog) {
                 set.status = 404;
@@ -186,7 +187,8 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
 
             // Invalida caches
             await cache.del(CACHE_KEY_BLOGS);
-            await cache.del(`blog:slug:${blog.slug}`);
+            await cache.del(`blog:published:slug:v2:${blog.slug}`);
+            if (previous?.slug && previous.slug !== blog.slug) await cache.del(`blog:published:slug:v2:${previous.slug}`);
 
             return { success: true, data: blog };
         } catch (error: any) {
@@ -195,8 +197,8 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
         }
     })
     .delete('/:id', async (ctx: any) => {
-        const jwt = requireAuth(ctx);
-        if (!jwt) return { success: false, error: 'Não autorizado' };
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) return { success: false, error: 'Não autorizado' };
         const { params, set } = ctx;
         try {
             const blog = await mBlog.findByIdAndDelete(params.id);
@@ -207,7 +209,7 @@ export const blogRoutes = new Elysia({ prefix: '/blogs' })
 
             // Invalida caches
             await cache.del(CACHE_KEY_BLOGS);
-            if (blog.slug) await cache.del(`blog:slug:${blog.slug}`);
+            if (blog.slug) await cache.del(`blog:published:slug:v2:${blog.slug}`);
 
             return { success: true, message: 'Post removido' };
         } catch (error: any) {
