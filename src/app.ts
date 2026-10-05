@@ -16,6 +16,7 @@ import { mjsonRoutes } from './routes/mjson';
 import { bvaOrderRoutes } from './routes/bvaOrders';
 import { bvaProspectRoutes } from './routes/bvaProspects';
 import { cors } from '@elysiajs/cors';
+import { adminClientRoutes } from './routes/adminClients';
 
 /**
  * Cria e configura a aplicação Elysia
@@ -113,6 +114,7 @@ export const app = new Elysia()
     .use(credentialRoutes)
     .use(taskRoutes)
     .use(authRoutes)
+    .use(adminClientRoutes)
     .use(healthtechRoutes)
     .use(appRoutes)
     .use(blogRoutes)

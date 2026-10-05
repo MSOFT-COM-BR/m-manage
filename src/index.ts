@@ -25,6 +25,7 @@ import { bvaCatalogAccessRoutes } from './routes/bvaCatalogAccess';
 import { rabbitMQ } from './services/rabbitmq.service';
 import { persistClientFormEvent } from './modules/clientForms/consumer';
 import { mCursosRoutes } from './modules/mCursos';
+import { adminClientRoutes } from './routes/adminClients';
 
 // 1. Inicializa Conexão com Banco
 await connectMongo();
@@ -115,6 +116,7 @@ const app = new Elysia()
 
     // 3. Registra os Módulos
     .use(authRoutes)
+    .use(adminClientRoutes)
     .use(appRoutes) // Msite Apps (Install/Verify)
     .use(catalogRoutes) // Marketplace Catalog
     .use(credentialRoutes) // Mcredential 
