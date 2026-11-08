@@ -5,8 +5,10 @@ import { mApps } from '../models/mApps';
 export function requireAuth(ctx: any): JwtPayload | undefined {
     const auth = ctx.headers?.authorization || ctx.request?.headers?.get?.('authorization');
     if (!auth?.startsWith('Bearer ')) {
-        ctx.set.status = 401;
-        ctx.set.headers = { ...ctx.set.headers, 'WWW-Authenticate': 'Bearer' };
+        if (ctx?.set) {
+            ctx.set.status = 401;
+            ctx.set.headers = { ...ctx.set.headers, 'WWW-Authenticate': 'Bearer' };
+        }
         return undefined;
     }
     const token = auth.slice(7);
@@ -15,7 +17,9 @@ export function requireAuth(ctx: any): JwtPayload | undefined {
         ctx.user = payload;
         return payload;
     } catch {
-        ctx.set.status = 401;
+        if (ctx?.set) {
+            ctx.set.status = 401;
+        }
         return undefined;
     }
 }

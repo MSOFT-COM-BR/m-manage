@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { mLead } from '../../models/mLeads';
 import { mLogs } from '../../models/mLogs';
+import { requireMasterAdmin } from '../../middleware/requireAuth';
 
 /** POST /leads — captura de oportunidades (site expertise e outros). */
 const createLeadBody = t.Object({
@@ -64,7 +65,12 @@ export const mLeadsRequestRoutes = new Elysia({ prefix: '/leads' })
     }, {
         body: createLeadBody
     })
-    .get('/', async ({ set }) => {
+    .get('/', async (ctx: any) => {
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) {
+            return { success: false, error: 'Não autorizado' };
+        }
+
         try {
             const leads = await mLead.find().sort({ createdAt: -1 }).limit(200);
             return {
@@ -73,7 +79,7 @@ export const mLeadsRequestRoutes = new Elysia({ prefix: '/leads' })
                 data: leads
             };
         } catch (error: unknown) {
-            set.status = 500;
+            ctx.set.status = 500;
             return {
                 success: false,
                 error: getErrorMessage(error)

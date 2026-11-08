@@ -1,28 +1,22 @@
 import { Elysia } from 'elysia';
-import { db } from './config/database';
-import { credentialRoutes } from './routes/credentials';
-import { taskRoutes } from './routes/tasks';
-import { authRoutes } from './routes/auth';
-import { healthtechRoutes } from './routes/healthtech';
-import { appRoutes } from './routes/apps';
-import { blogRoutes } from './routes/blogs';
-import { logRoutes } from './routes/logs';
-import { mLeadsRequestRoutes } from './modules/mLeadsRequest';
-import { productRoutes } from './modules/products';
-import { erpRoutes } from './modules/erp';
-import { erpFinanceRoutes } from './modules/erpFinance';
-import { restaurantRoutes } from './modules/restaurant';
-import { mjsonRoutes } from './routes/mjson';
-import { bvaOrderRoutes } from './routes/bvaOrders';
-import { bvaProspectRoutes } from './routes/bvaProspects';
 import { cors } from '@elysiajs/cors';
-import { adminClientRoutes } from './routes/adminClients';
+import { db } from './config/database';
+import { applySecurityHeaders, securityHeaders } from './middleware/securityHeaders';
+import {
+    businessEduFashionRoutes,
+    businessOperationsRoutes,
+    ecosystemDomainRoutes,
+    platformDomainRoutes,
+} from './modules';
+import { hubRoutes } from './hub';
 
 /**
  * Cria e configura a aplicação Elysia
  */
 export const app = new Elysia()
-    // ... existing code ...
+    // Middleware global de cabeçalhos de segurança HTTP (OWASP)
+    .use(securityHeaders)
+
     // Configura CORS
     .use(cors({
         origin: [
@@ -47,6 +41,7 @@ export const app = new Elysia()
 
     // Middleware global de tratamento de erros
     .onError(({ code, error, set }) => {
+        applySecurityHeaders(set.headers);
 
         // Tratamento específico por tipo de erro
         switch (code) {
@@ -55,7 +50,7 @@ export const app = new Elysia()
                 return {
                     success: false,
                     error: 'Erro de validação',
-                    message: error.message,
+                    message: (error as any)?.message ?? 'Dados inválidos',
                 };
 
             case 'NOT_FOUND':
@@ -70,7 +65,7 @@ export const app = new Elysia()
                 return {
                     success: false,
                     error: 'Erro interno do servidor',
-                    message: process.env.NODE_ENV === 'development' ? error.message : undefined,
+                    message: process.env.NODE_ENV === 'development' ? (error as any)?.message : undefined,
                 };
 
             default:
@@ -78,7 +73,7 @@ export const app = new Elysia()
                 return {
                     success: false,
                     error: 'Erro desconhecido',
-                    message: process.env.NODE_ENV === 'development' ? error.message : undefined,
+                    message: process.env.NODE_ENV === 'development' ? (error as any)?.message : undefined,
                 };
         }
     })
@@ -110,23 +105,12 @@ export const app = new Elysia()
         };
     })
 
-    // Registra as rotas
-    .use(credentialRoutes)
-    .use(taskRoutes)
-    .use(authRoutes)
-    .use(adminClientRoutes)
-    .use(healthtechRoutes)
-    .use(appRoutes)
-    .use(blogRoutes)
-    .use(logRoutes)
-    .use(mLeadsRequestRoutes)
-    .use(productRoutes)
-    .use(erpRoutes)
-    .use(erpFinanceRoutes)
-    .use(restaurantRoutes)
-    .use(mjsonRoutes)
-    .use(bvaOrderRoutes)
-    .use(bvaProspectRoutes)
+    // Registra os Domínios do Hub (Clean Architecture)
+    .use(hubRoutes)
+    .use(platformDomainRoutes)
+    .use(ecosystemDomainRoutes)
+    .use(businessEduFashionRoutes)
+    .use(businessOperationsRoutes)
 
     // Documentação automática (Swagger)
     .get('/docs', () => ({
@@ -135,6 +119,10 @@ export const app = new Elysia()
         endpoints: {
             health: 'GET /',
             healthCheck: 'GET /health',
+            hub: {
+                manifest: 'GET /hub/manifest',
+                health: 'GET /hub/health',
+            },
             auth: {
                 login: 'POST /auth/login',
                 register: 'POST /auth/register',

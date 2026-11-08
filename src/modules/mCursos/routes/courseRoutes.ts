@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { Course } from '../models/Course';
-import { requireActiveUser } from '../../../middleware/requireAuth';
+import { mCursosAuth } from '../middleware/authGuard';
 
 export const courseRoutes = new Elysia({ prefix: '/courses' })
     .get('/', async () => {
@@ -12,7 +12,7 @@ export const courseRoutes = new Elysia({ prefix: '/courses' })
         if (!course) throw new Error('Course not found');
         return { data: course };
     })
-    .use(requireActiveUser)
+    .use(mCursosAuth)
     // Instructor/Admin protected routes
     .get('/my-courses', async ({ user }: any) => {
         // Cursos onde o usuário é instrutor

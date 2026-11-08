@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeAll, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
-import { catalogRoutes } from '../src/routes/catalog';
+import { CATALOG_SEED_DATA, catalogRoutes } from '../src/routes/catalog';
 import { db } from '../src/config/database';
 import { signAccessToken } from '../src/config/jwt';
 import { mAuth } from '../src/models/mAuth';
@@ -9,6 +9,12 @@ import { mCatalog } from '../src/models/mCatalog';
 // src/app.ts (legado) nao registra catalogRoutes, entao o teste monta sua
 // propria instancia — mesmo padrao de app.handle() dos demais testes.
 const app = new Elysia().use(catalogRoutes);
+
+test('the M-Care commercial catalog seed retains its internal reference price', () => {
+    expect(CATALOG_SEED_DATA.find((item) => item.appKey === 'm-care')).toMatchObject({
+        name: 'M-Care', type: 'subscription', price: 497, currency: 'BRL',
+    });
+});
 
 // Use test database
 if (!process.env.MONGODB_URI) {

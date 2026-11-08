@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { Category } from '../models/Category';
-import { requireActiveUser } from '../../../middleware/requireAuth';
+import { mCursosAuth } from '../middleware/authGuard';
 
 export const categoryRoutes = new Elysia({ prefix: '/categories' })
     .get('/', async () => {
@@ -12,7 +12,7 @@ export const categoryRoutes = new Elysia({ prefix: '/categories' })
         if (!category) throw new Error('Category not found');
         return { data: category };
     })
-    .use(requireActiveUser)
+    .use(mCursosAuth)
     // Protected routes (Admin only conceptually, but for now we rely on Active User)
     .post('/', async ({ body }: any) => {
         const category = await Category.create(body);

@@ -1,10 +1,10 @@
 import { Elysia, t } from 'elysia';
 import { Enrollment } from '../models/Enrollment';
 import { Course } from '../models/Course';
-import { requireActiveUser } from '../../../middleware/requireAuth';
+import { mCursosAuth } from '../middleware/authGuard';
 
 export const enrollmentRoutes = new Elysia({ prefix: '/enrollments' })
-    .use(requireActiveUser)
+    .use(mCursosAuth)
     .get('/my', async ({ user }: any) => {
         // Populating course would be good, but we can do a manual join or aggregate
         const enrollments = await Enrollment.find({ studentId: user.id }).sort({ enrolledAt: -1 });

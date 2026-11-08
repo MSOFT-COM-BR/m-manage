@@ -45,8 +45,12 @@ services:
       dockerfile: Dockerfile
     container_name: msoftmanage-api
     restart: unless-stopped
+    ports:
+      - "3000:3000"
     expose:
       - "3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       NODE_ENV: production
       PORT: 3000

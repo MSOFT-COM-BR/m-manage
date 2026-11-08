@@ -4,6 +4,7 @@ import { mBvaOrder } from '../../models/mBvaOrder';
 import type { IInsumo, IInsumoCor, IProdutoAttachment, IProdutoFabril, IProdutoFilamento, IProdutoVideo, IKardex, IErpConfig, IErpConfigRedesSociais, IMaquina, ErpTipo } from '../../models/mErp';
 import type { IProductImage } from '../../models/mProduct';
 import { checkTenantAccess } from '../../middleware/tenantPlugin';
+import { requireMasterAdmin } from '../../middleware/requireAuth';
 import { saveAnyUpload, saveUpload, deleteUpload } from '../../services/uploadService';
 import { calcularPrecificacao } from '../../services/erpPricing';
 
@@ -174,15 +175,13 @@ async function resolveCustoMaquinaHora(appKey: string, maquinaId: string | undef
     return (maquina.data as IMaquina).custoMaquinaHora ?? DEFAULT_CUSTO_MAQUINA_HORA;
 }
 
-function isAdminJwt(ctx: any): boolean {
-    try {
-        const auth = ctx.headers?.authorization || '';
-        const token = auth.replace('Bearer ', '');
-        if (!token) return false;
-        const [, payload] = token.split('.');
-        const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString());
-        return Array.isArray(decoded.roles) && decoded.roles.includes('admin');
-    } catch { return false; }
+async function isMasterAdmin(ctx: any): Promise<boolean> {
+    const prevStatus = ctx?.set?.status;
+    const admin = await requireMasterAdmin(ctx);
+    if (!admin && ctx?.set) {
+        ctx.set.status = prevStatus;
+    }
+    return !!admin;
 }
 
 // ── INSUMOS ───────────────────────────────────────────────────────────────────
@@ -195,7 +194,7 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
         if (guard) return guard;
         const { appKey, alerta, deleted } = ctx.query as Record<string, string>;
         // deleted=1 mostra apenas insumos arquivados (admin only)
-        const showDeleted = deleted === '1' && isAdminJwt(ctx);
+        const showDeleted = deleted === '1' && (await isMasterAdmin(ctx));
         const filter: any = { appKey, tipo: 'insumo' };
         filter.deletedAt = showDeleted ? { $ne: null } : null;
         const items = await mErp.find(filter).sort({ 'data.nome': 1 });
@@ -382,8 +381,12 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
 
     // DELETE /erp/insumos/:uuid — admin only (soft delete)
     .delete('/:uuid', async (ctx: any) => {
-        if (!isAdminJwt(ctx)) { ctx.set.status = 403; return { success: false, error: 'Apenas administradores podem arquivar insumos' }; }
-        const { item, err } = await findItem(ctx.params.uuid, 'insumo', ctx, 'owner');
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) {
+            ctx.set.status = ctx.set.status || 403;
+            return { success: false, error: 'Apenas administradores podem arquivar insumos' };
+        }
+        const { err } = await findItem(ctx.params.uuid, 'insumo', ctx, 'owner');
         if (err) return err;
         await mErp.findOneAndUpdate({ uuid: ctx.params.uuid }, { $set: { deletedAt: new Date() } });
         return { success: true, message: 'Insumo arquivado' };
@@ -391,7 +394,11 @@ const insumoRoutes = new Elysia({ prefix: '/insumos' })
 
     // PATCH /erp/insumos/:uuid/restore — admin only (restaura soft delete)
     .patch('/:uuid/restore', async (ctx: any) => {
-        if (!isAdminJwt(ctx)) { ctx.set.status = 403; return { success: false, error: 'Apenas administradores podem restaurar insumos' }; }
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) {
+            ctx.set.status = ctx.set.status || 403;
+            return { success: false, error: 'Apenas administradores podem restaurar insumos' };
+        }
         // findItem com includeDeleted=true para achar o arquivado
         const item = await mErp.findOne({ uuid: ctx.params.uuid, tipo: 'insumo', deletedAt: { $ne: null } });
         if (!item) { ctx.set.status = 404; return { success: false, error: 'Insumo arquivado não encontrado' }; }
@@ -412,7 +419,7 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
         const guard = await checkTenantAccess(ctx, 'viewer');
         if (guard) return guard;
         const { appKey, semEstoque, deleted } = ctx.query as Record<string, string>;
-        const showDeleted = deleted === '1' && isAdminJwt(ctx);
+        const showDeleted = deleted === '1' && (await isMasterAdmin(ctx));
         const filter: any = { appKey, tipo: 'produto_fabril' };
         filter.deletedAt = showDeleted ? { $ne: null } : null;
         const items = await mErp.find(filter).sort({ 'data.nome': 1 });
@@ -794,8 +801,12 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
 
     // DELETE /erp/produtos/:uuid — admin only (soft delete)
     .delete('/:uuid', async (ctx: any) => {
-        if (!isAdminJwt(ctx)) { ctx.set.status = 403; return { success: false, error: 'Apenas administradores podem arquivar produtos' }; }
-        const { item, err } = await findItem(ctx.params.uuid, 'produto_fabril', ctx, 'owner');
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) {
+            ctx.set.status = ctx.set.status || 403;
+            return { success: false, error: 'Apenas administradores podem arquivar produtos' };
+        }
+        const { err } = await findItem(ctx.params.uuid, 'produto_fabril', ctx, 'owner');
         if (err) return err;
         await mErp.findOneAndUpdate({ uuid: ctx.params.uuid }, { $set: { deletedAt: new Date() } });
         return { success: true, message: 'Produto arquivado' };
@@ -803,7 +814,11 @@ const produtoRoutes = new Elysia({ prefix: '/produtos' })
 
     // PATCH /erp/produtos/:uuid/restore — admin only
     .patch('/:uuid/restore', async (ctx: any) => {
-        if (!isAdminJwt(ctx)) { ctx.set.status = 403; return { success: false, error: 'Apenas administradores podem restaurar produtos' }; }
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) {
+            ctx.set.status = ctx.set.status || 403;
+            return { success: false, error: 'Apenas administradores podem restaurar produtos' };
+        }
         const item = await mErp.findOne({ uuid: ctx.params.uuid, tipo: 'produto_fabril', deletedAt: { $ne: null } });
         if (!item) { ctx.set.status = 404; return { success: false, error: 'Produto arquivado não encontrado' }; }
         const restored = await mErp.findOneAndUpdate(
@@ -1000,12 +1015,15 @@ const configLogoRoutes = new Elysia({ prefix: '/config' })
 
 const maquinaRoutes = new Elysia({ prefix: '/maquinas' })
 
-    // GET /erp/maquinas?appKey= — viewer+
+    // GET /erp/maquinas?appKey=&deleted=1 — viewer+
     .get('/', async (ctx: any) => {
         const guard = await checkTenantAccess(ctx, 'viewer');
         if (guard) return guard;
-        const { appKey } = ctx.query as Record<string, string>;
-        const items = await mErp.find({ appKey, tipo: 'maquina', deletedAt: null }).sort({ 'data.nome': 1 });
+        const { appKey, deleted } = ctx.query as Record<string, string>;
+        const showDeleted = deleted === '1' && (await isMasterAdmin(ctx));
+        const filter: any = { appKey, tipo: 'maquina' };
+        filter.deletedAt = showDeleted ? { $ne: null } : null;
+        const items = await mErp.find(filter).sort({ 'data.nome': 1 });
         return { success: true, count: items.length, data: items.map(flat) };
     })
 
@@ -1064,11 +1082,32 @@ const maquinaRoutes = new Elysia({ prefix: '/maquinas' })
 
     // DELETE /erp/maquinas/:uuid — admin only (soft delete)
     .delete('/:uuid', async (ctx: any) => {
-        if (!isAdminJwt(ctx)) { ctx.set.status = 403; return { success: false, error: 'Apenas administradores podem arquivar máquinas' }; }
-        const { item, err } = await findItem(ctx.params.uuid, 'maquina', ctx, 'owner');
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) {
+            ctx.set.status = ctx.set.status || 403;
+            return { success: false, error: 'Apenas administradores podem arquivar máquinas' };
+        }
+        const { err } = await findItem(ctx.params.uuid, 'maquina', ctx, 'owner');
         if (err) return err;
         await mErp.findOneAndUpdate({ uuid: ctx.params.uuid }, { $set: { deletedAt: new Date() } });
         return { success: true, message: 'Máquina arquivada' };
+    })
+
+    // PATCH /erp/maquinas/:uuid/restore — admin only (restaura soft delete)
+    .patch('/:uuid/restore', async (ctx: any) => {
+        const admin = await requireMasterAdmin(ctx);
+        if (!admin) {
+            ctx.set.status = ctx.set.status || 403;
+            return { success: false, error: 'Apenas administradores podem restaurar máquinas' };
+        }
+        const item = await mErp.findOne({ uuid: ctx.params.uuid, tipo: 'maquina', deletedAt: { $ne: null } });
+        if (!item) { ctx.set.status = 404; return { success: false, error: 'Máquina arquivada não encontrada' }; }
+        const restored = await mErp.findOneAndUpdate(
+            { uuid: ctx.params.uuid },
+            { $set: { deletedAt: null } },
+            { new: true }
+        );
+        return { success: true, message: 'Máquina restaurada', data: flat(restored) };
     });
 
 // ── KARDEX ────────────────────────────────────────────────────────────────────

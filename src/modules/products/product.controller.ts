@@ -145,7 +145,7 @@ async function listBvaProductsFromErp(query: Record<string, string>) {
     const skip = (pageNum - 1) * limitNum;
 
     const [items, total] = await Promise.all([
-        mErp.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(limitNum),
+        mErp.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
         mErp.countDocuments(filter),
     ]);
 

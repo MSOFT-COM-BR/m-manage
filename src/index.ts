@@ -1,31 +1,18 @@
 import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import { connectMongo } from './config/mongo';
+import { applySecurityHeaders, securityHeaders } from './middleware/securityHeaders';
 import { presignUpload, readUpload } from './services/uploadService';
-import { authRoutes } from './routes/auth';
-import { appRoutes } from './routes/apps';
-import { catalogRoutes, ensureCatalogSeeded } from './routes/catalog';
-import { credentialRoutes } from './routes/credentials';
-import { healthtechRoutes } from './routes/healthtech';
-import { taskRoutes } from './routes/tasks';
-import { blogRoutes } from './routes/blogs';
-import { contentRoutes } from './routes/content';
-import { logRoutes } from './routes/logs';
-import { mLeadsRequestRoutes } from './modules/mLeadsRequest';
-import { productRoutes } from './modules/products';
-import { erpRoutes } from './modules/erp';
-import { erpFinanceRoutes } from './modules/erpFinance';
-import { restaurantRoutes } from './modules/restaurant';
-import { mjsonRoutes } from './routes/mjson';
-import { consultorasRoutes } from './routes/consultoras';
-import { bvaOrderRoutes } from './routes/bvaOrders';
-import { bvaProspectRoutes } from './routes/bvaProspects';
-import { bvaCategoriaRoutes } from './routes/bvaCategorias';
-import { bvaCatalogAccessRoutes } from './routes/bvaCatalogAccess';
+import {
+    businessEduFashionRoutes,
+    businessOperationsRoutes,
+    ecosystemDomainRoutes,
+    ensureCatalogSeeded,
+    persistClientFormEvent,
+    platformDomainRoutes,
+} from './modules';
+import { hubRoutes } from './hub';
 import { rabbitMQ } from './services/rabbitmq.service';
-import { persistClientFormEvent } from './modules/clientForms/consumer';
-import { mCursosRoutes } from './modules/mCursos';
-import { adminClientRoutes } from './routes/adminClients';
 
 // 1. Inicializa Conexão com Banco
 await connectMongo();
@@ -56,6 +43,7 @@ const LOCAL_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1|m-manage\.local|m-b
 
 // 2. Cria a Aplicação
 const app = new Elysia()
+    .use(securityHeaders)
     .use(cors({
         origin: isDev
             ? true
@@ -67,6 +55,54 @@ const app = new Elysia()
         allowedHeaders: ['Content-Type', 'Authorization', 'X-Organization-Id', 'X-Organization-Unit-Id'],
         credentials: true,
     }))
+    .onError(({ code, error, set }) => {
+        applySecurityHeaders(set.headers);
+
+        const isProduction = process.env.NODE_ENV === 'production';
+
+        switch (code) {
+            case 'VALIDATION':
+                set.status = 400;
+                return {
+                    success: false,
+                    error: 'Erro de validação',
+                    message: (error as any)?.message ?? 'Dados inválidos',
+                };
+
+            case 'NOT_FOUND':
+                set.status = 404;
+                return {
+                    success: false,
+                    error: 'Rota não encontrada',
+                };
+
+            case 'PARSE':
+                set.status = 400;
+                return {
+                    success: false,
+                    error: 'Erro ao processar corpo da requisição',
+                };
+
+            case 'INTERNAL_SERVER_ERROR':
+            default:
+                set.status = (error as any)?.status && typeof (error as any).status === 'number'
+                    ? (error as any).status
+                    : 500;
+
+                // Observabilidade estruturada interna sem vazar detalhes para o cliente HTTP
+                console.error(`[MManage Global Error Guard] [${code}]`, error);
+
+                return {
+                    success: false,
+                    error: set.status === 404 ? 'Rota não encontrada' : 'Erro interno do servidor',
+                    ...(!isProduction && {
+                        code,
+                        message: (error as any)?.message,
+                        stack: (error as any)?.stack,
+                    }),
+                };
+        }
+    })
     .get('/', () => '🦊 MManage API is Running!')
     .get('/health', () => ({
         success: true,
@@ -114,29 +150,12 @@ const app = new Elysia()
         }
     })
 
-    // 3. Registra os Módulos
-    .use(authRoutes)
-    .use(adminClientRoutes)
-    .use(appRoutes) // Msite Apps (Install/Verify)
-    .use(catalogRoutes) // Marketplace Catalog
-    .use(credentialRoutes) // Mcredential 
-    .use(healthtechRoutes) // HealthTech Dashboard
-    .use(taskRoutes) // MTasks
-    .use(blogRoutes) // Blogs
-    .use(contentRoutes) // Content Managementes)
-    .use(logRoutes)
-    .use(mLeadsRequestRoutes)
-    .use(productRoutes)
-    .use(erpRoutes)
-    .use(erpFinanceRoutes)
-    .use(restaurantRoutes)
-    .use(mjsonRoutes)
-    .use(consultorasRoutes)
-    .use(bvaOrderRoutes)
-    .use(bvaProspectRoutes)
-    .use(bvaCategoriaRoutes)
-    .use(bvaCatalogAccessRoutes)
-    .use(mCursosRoutes);
+    // 3. Registra os Domínios do Hub (Clean Architecture)
+    .use(hubRoutes)
+    .use(platformDomainRoutes)
+    .use(ecosystemDomainRoutes)
+    .use(businessEduFashionRoutes)
+    .use(businessOperationsRoutes);
 
 const listenPort = Number(process.env.PORT);
 app.listen(Number.isFinite(listenPort) && listenPort > 0 ? listenPort : 3000);

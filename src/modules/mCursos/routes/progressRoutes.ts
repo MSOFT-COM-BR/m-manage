@@ -1,10 +1,10 @@
 import { Elysia, t } from 'elysia';
 import { LessonProgress } from '../models/LessonProgress';
 import { Enrollment } from '../models/Enrollment';
-import { requireActiveUser } from '../../../middleware/requireAuth';
+import { mCursosAuth } from '../middleware/authGuard';
 
 export const progressRoutes = new Elysia({ prefix: '/progress' })
-    .use(requireActiveUser)
+    .use(mCursosAuth)
     .get('/course/:courseId', async ({ params: { courseId }, user }: any) => {
         const progress = await LessonProgress.find({ courseId, studentId: user.id });
         return { data: progress };
