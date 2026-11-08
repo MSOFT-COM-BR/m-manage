@@ -144,6 +144,9 @@ export const app = new Elysia()
                 create: 'POST /leads',
                 list: 'GET /leads'
             },
+            clientForms: {
+                submit: 'POST /client/form/:source'
+            },
             mjson: {
                 list: 'GET /mjson',
                 getByKey: 'GET /mjson/:key',

@@ -4,6 +4,7 @@ import { authRoutes } from './auth';
 import { credentialRoutes } from './credentials';
 import { logRoutes } from './logs';
 import { taskRoutes } from './tasks';
+import { tokenRoutes } from './tokens';
 
 /**
  * Hub de Rotas do Domínio de Plataforma & Core.
@@ -14,6 +15,7 @@ import { taskRoutes } from './tasks';
  * - Gestão Administrativa de Clientes (`/admin/clients`)
  * - Logs de Auditoria do Sistema (`/logs`)
  * - Agendamento e Execução de Tarefas (`/tasks`)
+ * - Gerenciador Unificado de API Tokens (`/tokens`)
  *
  * Mantém retrocompatibilidade total e contratos estritos sob a Clean Architecture.
  */
@@ -22,7 +24,8 @@ export const platformDomainRoutes = new Elysia({ name: 'platform.domain' })
     .use(credentialRoutes)
     .use(adminClientRoutes)
     .use(logRoutes)
-    .use(taskRoutes);
+    .use(taskRoutes)
+    .use(tokenRoutes);
 
 export {
     adminClientRoutes,
@@ -32,4 +35,6 @@ export {
     isValidCpf,
     logRoutes,
     taskRoutes,
+    tokenRoutes,
 };
+

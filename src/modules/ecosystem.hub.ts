@@ -10,7 +10,8 @@ import { mLeadsRequestRoutes } from './mLeadsRequest';
 import { contentRoutes } from './content';
 import { blogRoutes, toBlogListingItem } from './blogs';
 import { mjsonRoutes } from './mjson';
-import { persistClientFormEvent } from './clientForms';
+import { clientFormsRoutes, persistClientFormEvent } from './clientForms';
+import { webhookRoutes, webhookService } from './webhooks';
 
 /**
  * Ecosystem & Licensing Domain Hub (Bounded Context Agregator)
@@ -23,6 +24,7 @@ import { persistClientFormEvent } from './clientForms';
  * - blogs: Publicação, listagem e gestão editorial de artigos com cache Redis
  * - mjson: Repositório de metadados dinâmicos e configurações JSON autenticadas
  * - clientForms: Processador/Consumidor de formulários de clientes via mensageria
+ * - webhooks: Motor de despacho de webhooks assíncronos e assinados (HMAC SHA-256) para n8n e automações
  *
  * Mantém 100% de retrocompatibilidade com as rotas e contratos existentes da API.
  */
@@ -32,7 +34,9 @@ export const ecosystemDomainRoutes = new Elysia({ name: 'domain.ecosystem' })
     .use(mLeadsRequestRoutes)
     .use(contentRoutes)
     .use(blogRoutes)
-    .use(mjsonRoutes);
+    .use(mjsonRoutes)
+    .use(webhookRoutes)
+    .use(clientFormsRoutes);
 
 // Re-exportações tipadas para conveniência e retrocompatibilidade com importações existentes
 export {
@@ -46,5 +50,8 @@ export {
     blogRoutes,
     toBlogListingItem,
     mjsonRoutes,
+    clientFormsRoutes,
     persistClientFormEvent,
+    webhookRoutes,
+    webhookService,
 };

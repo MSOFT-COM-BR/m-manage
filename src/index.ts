@@ -8,21 +8,19 @@ import {
     businessOperationsRoutes,
     ecosystemDomainRoutes,
     ensureCatalogSeeded,
+    handleClientFormEvent,
     persistClientFormEvent,
     platformDomainRoutes,
 } from './modules';
 import { hubRoutes } from './hub';
-import { rabbitMQ } from './services/rabbitmq.service';
+import { redisQueue } from './services/redisQueue.service';
 
 // 1. Inicializa Conexão com Banco
 await connectMongo();
 await ensureCatalogSeeded();
 
 if (process.env.CLIENT_FORM_CONSUMER_ENABLED === 'true') {
-    await rabbitMQ.consume('msoft-form-client', persistClientFormEvent, {
-        queue: 'msoft-form-client',
-        durable: true,
-    });
+    await redisQueue.consume('queue:client-forms', handleClientFormEvent);
 }
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -161,7 +159,7 @@ const listenPort = Number(process.env.PORT);
 app.listen(Number.isFinite(listenPort) && listenPort > 0 ? listenPort : 3000);
 
 const shutdown = async () => {
-    await rabbitMQ.close();
+    await redisQueue.close();
     process.exit(0);
 };
 
